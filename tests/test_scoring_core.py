@@ -1,5 +1,4 @@
-from pipelines.bitnewton_sync import evaluate_call_checklist
-from pipelines.scoring import recalculate_overall_score
+from pipelines.scoring import evaluate_call_checklist, recalculate_overall_score
 
 
 def test_recalculate_overall_score_uses_call_and_crm_only():

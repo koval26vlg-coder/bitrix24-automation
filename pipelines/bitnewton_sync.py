@@ -1,8 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import html
-import hashlib
 import json
 import os
 import re
@@ -16,9 +14,23 @@ import requests
 
 from asr.bitnewton import BitNewtonError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
-from bitrix.recordings import resolve_call_recording
-from download_resolver import download_best_effort
-from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR, TRANSCRIPTS_DIR
+from pipelines.audio import (
+    build_audio_source_index,
+    download_audio_for_call,
+    parse_audio_source_dirs,
+)
+from pipelines.calls import (
+    activity_get,
+    compute_discipline_metrics,
+    fetch_timeline_comments,
+    guess_duration_minutes,
+    guess_duration_sec,
+    list_deal_call_activities,
+    parse_dt,
+    split_call_center_operator_activities,
+    user_name_map,
+)
+from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.reporting import (
     build_manager_summary,
     flatten_results,
@@ -51,9 +63,15 @@ from pipelines.scoring import (
     recalculate_overall_score,
     transcript_match_score,
 )
+from pipelines.transcription import (
+    _load_state_cache,
+    _save_state_cache,
+    _sha256_text,
+    load_cached_transcript,
+    transcribe_with_bitnewton,
+)
 
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".aac", ".opus", ".flac", ".wma"}
 FIRST_RESPONSE_SLA_HOURS = 0.5
 MAX_GAP_BETWEEN_CALLS_HOURS = 72.0
 DEFAULT_KPI_CONFIG: Dict[str, Any] = {
@@ -82,112 +100,6 @@ STATE_CACHE_PATH = REPORTS_DIR / "state_cache.json"
 
 
 
-
-
-def _looks_like_html_prefix(data: bytes) -> bool:
-    if not data:
-        return True
-    head = data.lstrip()[:200].lower()
-    return head.startswith(b"<!doctype") or head.startswith(b"<html") or head.startswith(b"<head") or head.startswith(b"<body")
-
-
-def validate_audio_file(path: Path) -> Optional[str]:
-    """
-    Быстрая валидация, чтобы не отправлять в ASR HTML/пустышки.
-    """
-    try:
-        if not path.exists() or path.stat().st_size <= 0:
-            return "файл не создан или пустой"
-        if path.stat().st_size < 2048:
-            return f"файл слишком маленький ({path.stat().st_size} bytes)"
-        head = path.read_bytes()[:512]
-        if _looks_like_html_prefix(head):
-            return "вместо аудио скачался HTML (логин/нет прав)"
-    except Exception:
-        return None
-    return None
-
-
-def parse_audio_source_dirs(values: Any) -> List[Path]:
-    out: List[Path] = []
-    raw_values = values if isinstance(values, list) else ([values] if values else [])
-    for raw in raw_values:
-        for part in str(raw or "").split(";"):
-            text = part.strip().strip('"')
-            if text:
-                out.append(Path(text))
-    return out
-
-
-def build_audio_source_index(source_dirs: List[Path]) -> List[Path]:
-    files: List[Path] = []
-    seen: set[str] = set()
-    for source_dir in source_dirs:
-        try:
-            base = Path(source_dir)
-            if not base.exists() or not base.is_dir():
-                print(f"[WARN] Локальная папка аудио не найдена: {base}", flush=True)
-                continue
-            for path in base.rglob("*"):
-                if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
-                    continue
-                key = str(path.resolve()).lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                files.append(path)
-        except Exception as e:
-            print(f"[WARN] Не удалось просканировать папку аудио {source_dir}: {e}", flush=True)
-    return sorted(files, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
-
-
-def find_local_audio_source(
-    audio_index: List[Path],
-    deal_id: Any,
-    activity_id: Any,
-    disk_file_id: Any,
-    call_id: Any,
-    disk_file_name: Any = None,
-) -> Optional[Path]:
-    if not audio_index:
-        return None
-
-    disk_name = str(disk_file_name or "").strip().lower()
-    strong_tokens = [
-        str(disk_file_id or "").strip(),
-        str(activity_id or "").strip(),
-        str(call_id or "").strip(),
-        str(call_id or "").replace("VI_", "").strip(),
-    ]
-    weak_tokens = [str(deal_id or "").strip()]
-    strong_tokens = [t.lower() for t in strong_tokens if len(t.strip()) >= 3]
-    weak_tokens = [t.lower() for t in weak_tokens if len(t.strip()) >= 4]
-
-    ranked: List[Tuple[int, float, Path]] = []
-    for path in audio_index:
-        try:
-            name = path.name.lower()
-            stem = path.stem.lower()
-            score = 0
-            if disk_name and name == disk_name:
-                score += 120
-            elif disk_name and (disk_name in name or name in disk_name):
-                score += 90
-            if any(token and token in name for token in strong_tokens):
-                score += 80
-            if any(token and token in stem for token in strong_tokens):
-                score += 40
-            if any(token and token in name for token in weak_tokens):
-                score += 20
-            if score >= 80:
-                ranked.append((score, path.stat().st_mtime if path.exists() else 0, path))
-        except Exception:
-            continue
-
-    if not ranked:
-        return None
-    ranked.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    return ranked[0][2]
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -527,206 +439,6 @@ def attach_stage_history_metrics(
         row.update(summarize_stage_history(stage_history_by_deal.get(str(deal_id), []), stage_map=stage_map))
 
 
-def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
-    return api.call("crm.activity.get", {"id": int(activity_id)}).get("result", {}) or {}
-
-
-def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict[str, Any]]:
-    res = api.call(
-        "crm.activity.list",
-        {
-            "filter": {"OWNER_TYPE_ID": 2, "OWNER_ID": str(deal_id), "TYPE_ID": 2, "PROVIDER_ID": "VOXIMPLANT_CALL"},
-            "select": ["ID", "CREATED", "START_TIME", "END_TIME", "SUBJECT", "ORIGIN_ID", "DIRECTION", "PROVIDER_ID", "PROVIDER_TYPE_ID", "AUTHOR_ID", "RESPONSIBLE_ID"],
-            "order": {"START_TIME": "ASC"},
-            "start": 0,
-        },
-    )
-    return res.get("result", []) or []
-
-
-def user_profile(api: Bitrix24API, user_id: Any, cache: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
-    uid = safe_int(user_id)
-    if uid is None:
-        return {}
-    if uid in cache:
-        return cache[uid]
-    try:
-        arr = api.call("user.get", {"ID": int(uid)}).get("result") or []
-        cache[uid] = arr[0] if arr and isinstance(arr[0], dict) else {}
-    except Exception:
-        cache[uid] = {}
-    return cache[uid]
-
-
-def load_department_chain(api: Bitrix24API, department_ids: List[Any], cache: Dict[int, Dict[str, Any]]) -> None:
-    pending = {int(x) for x in [safe_int(v) for v in department_ids] if x is not None and int(x) > 0 and int(x) not in cache}
-    while pending:
-        current = sorted(pending)
-        pending.clear()
-        try:
-            rows = api.call("department.get", {"ID": current}).get("result") or []
-        except Exception:
-            rows = []
-        for row in rows:
-            if not isinstance(row, dict):
-                continue
-            did = safe_int(row.get("ID"))
-            if did is None:
-                continue
-            cache[did] = row
-            parent = safe_int(row.get("PARENT"))
-            if parent is not None and parent > 0 and parent not in cache:
-                pending.add(parent)
-
-
-def department_is_call_center(department_id: Any, cache: Dict[int, Dict[str, Any]]) -> bool:
-    did = safe_int(department_id)
-    seen: set[int] = set()
-    while did is not None and did > 0 and did not in seen:
-        seen.add(did)
-        row = cache.get(did) or {}
-        name = str(row.get("NAME") or "").lower()
-        if "call центр" in name or "call center" in name or "колл" in name or "контакт центр" in name:
-            return True
-        did = safe_int(row.get("PARENT"))
-    return False
-
-
-def is_call_center_operator(
-    api: Bitrix24API,
-    user_id: Any,
-    user_cache: Dict[int, Dict[str, Any]],
-    department_cache: Dict[int, Dict[str, Any]],
-) -> bool:
-    user = user_profile(api, user_id, user_cache)
-    if not user:
-        return False
-    position = str(user.get("WORK_POSITION") or "").lower()
-    if "оператор" not in position and "operator" not in position:
-        return False
-    departments = user.get("UF_DEPARTMENT") or []
-    if not isinstance(departments, list):
-        departments = [departments]
-    load_department_chain(api, departments, department_cache)
-    return any(department_is_call_center(dept_id, department_cache) for dept_id in departments)
-
-
-def split_call_center_operator_activities(
-    api: Bitrix24API,
-    activities: List[Dict[str, Any]],
-    user_cache: Dict[int, Dict[str, Any]],
-    department_cache: Dict[int, Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    kept: List[Dict[str, Any]] = []
-    skipped: List[Dict[str, Any]] = []
-    for act in activities:
-        responsible_id = act.get("RESPONSIBLE_ID") or act.get("AUTHOR_ID")
-        if is_call_center_operator(api, responsible_id, user_cache, department_cache):
-            skipped.append(act)
-        else:
-            kept.append(act)
-    return kept, skipped
-
-
-def user_name_map(api: Bitrix24API, user_ids: List[int]) -> Dict[int, str]:
-    out: Dict[int, str] = {}
-    for uid in sorted(set(user_ids)):
-        try:
-            arr = api.call("user.get", {"ID": int(uid)}).get("result") or []
-            if arr and isinstance(arr[0], dict):
-                u = arr[0]
-                out[int(uid)] = f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() or str(uid)
-        except Exception:
-            out[int(uid)] = str(uid)
-    return out
-
-
-def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> List[str]:
-    try:
-        res = api.call("crm.timeline.comment.list", {"filter": {"ENTITY_TYPE": "deal", "ENTITY_ID": int(deal_id)}})
-        rows = res.get("result", []) or []
-        comments: List[str] = []
-        for r in rows:
-            txt = str((r or {}).get("COMMENT") or "").strip()
-            if txt:
-                comments.append(txt)
-        return comments
-    except Exception:
-        return []
-
-
-def parse_dt(raw: Any) -> Optional[datetime]:
-    try:
-        if not raw:
-            return None
-        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
-    except Exception:
-        return None
-
-
-def guess_duration_sec(act: Dict[str, Any]) -> int:
-    try:
-        st = act.get("START_TIME")
-        en = act.get("END_TIME")
-        if st and en:
-            dt1 = datetime.fromisoformat(str(st).replace("Z", "+00:00"))
-            dt2 = datetime.fromisoformat(str(en).replace("Z", "+00:00"))
-            sec = int(max(1.0, (dt2 - dt1).total_seconds()))
-            return sec
-    except Exception:
-        pass
-    return 60
-
-
-def guess_duration_minutes(act: Dict[str, Any]) -> float:
-    return round(guess_duration_sec(act) / 60.0, 2)
-
-
-def reaction_speed_label(first_delay_min: Optional[float]) -> str:
-    if first_delay_min is None:
-        return "Нет звонка менеджера"
-    if first_delay_min <= 15:
-        return "Быстрая реакция"
-    if first_delay_min <= 30:
-        return "В срок"
-    if first_delay_min <= 60:
-        return "Поздно"
-    return "Критически поздно"
-
-
-def compute_discipline_metrics(deal: Dict[str, Any], calls: List[Dict[str, Any]], kpi: Dict[str, Any]) -> Dict[str, Any]:
-    sla_cfg = kpi.get("sla", {})
-    first_response_sla = float(sla_cfg.get("first_response_hours", FIRST_RESPONSE_SLA_HOURS))
-    created = parse_dt(deal.get("DATE_CREATE"))
-    call_times = [parse_dt(c.get("START_TIME")) for c in calls]
-    call_times = [t for t in call_times if t is not None]
-    call_times.sort()
-
-    first_delay_h = None
-    first_delay_min = None
-    if created and call_times:
-        first_delay_h = round(max(0.0, (call_times[0] - created).total_seconds() / 3600.0), 2)
-        first_delay_min = round(max(0.0, (call_times[0] - created).total_seconds() / 60.0), 1)
-
-    first_sla_min = round(first_response_sla * 60.0, 1)
-    first_ok = first_delay_h is not None and first_delay_h <= first_response_sla
-
-    return {
-        "calls_count": len(call_times),
-        "first_response_hours": first_delay_h,
-        "first_response_minutes": first_delay_min,
-        "first_response_sla_minutes": first_sla_min,
-        "first_response_sla_ok": first_ok,
-        "reaction_speed_label": reaction_speed_label(first_delay_min),
-        "first_response_explanation": (
-            f"Скорость реакции — сколько минут прошло от создания сделки до первого звонка менеджера. "
-            f"Единая норма KPI: до 30 мин.; факт: {first_delay_min:g} мин."
-            if first_delay_min is not None
-            else "Скорость реакции — время от создания сделки до первого звонка менеджера. Единая норма KPI: до 30 мин.; звонков менеджера нет."
-        ),
-    }
-
-
 def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
     w = kpi.get("deal_quality_weights", {})
     has_contact = bool(deal.get("CONTACT_ID") or deal.get("COMPANY_ID"))
@@ -877,58 +589,6 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
     }
 
 
-def save_transcript_file(deal_id: str, activity_id: Any, task_id: str, text: str) -> Path:
-    TRANSCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
-    safe_task = re.sub(r"[^a-zA-Z0-9_-]+", "_", str(task_id or ""))[:36] or "no_task"
-    safe_deal = re.sub(r"\D+", "", str(deal_id or "")) or "unknown_deal"
-    safe_activity = re.sub(r"\D+", "", str(activity_id or "")) or "unknown_activity"
-    path = TRANSCRIPTS_DIR / f"deal{safe_deal}_activity{safe_activity}_{safe_task}.txt"
-    path.write_text(text or "", encoding="utf-8")
-    return path
-
-
-def find_latest_transcript_file(deal_id: Any, activity_id: Any) -> Optional[Path]:
-    safe_deal = re.sub(r"\D+", "", str(deal_id or ""))
-    safe_activity = re.sub(r"\D+", "", str(activity_id or ""))
-    if not safe_deal or not safe_activity or not TRANSCRIPTS_DIR.exists():
-        return None
-    pattern = f"deal{safe_deal}_activity{safe_activity}_*.txt"
-    files = sorted(TRANSCRIPTS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
-    return files[0] if files else None
-
-
-def load_cached_transcript(
-    state_cache: Dict[str, Any],
-    call_id: str,
-    deal_id: Any,
-    activity_id: Any,
-) -> Tuple[Optional[str], Optional[Path]]:
-    candidates: List[Path] = []
-    cached = state_cache.get(call_id)
-    if isinstance(cached, dict):
-        cached_path = cached.get("transcript_path")
-        if cached_path:
-            candidates.append(Path(str(cached_path)))
-    latest = find_latest_transcript_file(deal_id, activity_id)
-    if latest:
-        candidates.append(latest)
-
-    seen: set[str] = set()
-    for path in candidates:
-        key = str(path)
-        if key in seen:
-            continue
-        seen.add(key)
-        try:
-            if path.exists() and path.stat().st_size > 0:
-                text = path.read_text(encoding="utf-8", errors="ignore").strip()
-                if text:
-                    return text, path
-        except Exception:
-            continue
-    return None, None
-
-
 def finalize_transcript_analysis(
     row: Dict[str, Any],
     deal: Dict[str, Any],
@@ -1031,24 +691,6 @@ def load_kpi_config(path: Optional[str]) -> Dict[str, Any]:
     merged = enforce_reaction_kpi(merged)
     validate_kpi_config(merged)
     return merged
-
-
-def _load_state_cache() -> Dict[str, Any]:
-    try:
-        if STATE_CACHE_PATH.exists():
-            raw = json.loads(STATE_CACHE_PATH.read_text(encoding="utf-8"))
-            return raw if isinstance(raw, dict) else {}
-    except Exception:
-        return {}
-    return {}
-
-
-def _save_state_cache(cache: Dict[str, Any]) -> None:
-    try:
-        STATE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
-    except Exception:
-        pass
 
 
 def load_report_json(path: str | Path) -> List[Dict[str, Any]]:
@@ -1183,10 +825,6 @@ def merge_retry_results(
         merged.append(row)
 
     return merged
-
-
-def _sha256_text(s: str) -> str:
-    return hashlib.sha256((s or "").encode("utf-8", errors="ignore")).hexdigest()
 
 
 def cleanup_old_chrome_tmp_profiles(base_dir: Path, keep_days: int = 7) -> int:
@@ -1640,110 +1278,31 @@ def run_sync(args: argparse.Namespace) -> Tuple[int, Path, Path]:
                         print(f"[CACHE] Использую сохранённую расшифровку: activity_id={row.get('activity_id')}", flush=True)
                         continue
 
-                rr = resolve_call_recording(api, call_id=call_id, activity_id=safe_int(act.get("ID")))
-                row["disk_file_id"] = rr.disk_file_id
-                row["recording_diagnostics"] = rr.diagnostics
-                candidates = rr.candidates
-                row["download_url"] = candidates[0] if candidates else None
-
-                ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-                local_source = find_local_audio_source(
-                    audio_source_index,
+                out_path, ui_browser_session = download_audio_for_call(
+                    api=api,
+                    args=args,
+                    row=row,
                     deal_id=deal_id,
-                    activity_id=act.get("ID"),
-                    disk_file_id=row.get("disk_file_id"),
+                    activity=act,
                     call_id=call_id,
-                    disk_file_name=(rr.diagnostics or {}).get("disk_file_name"),
+                    audio_source_index=audio_source_index,
+                    audio_dir=audio_dir,
+                    ui_audio_dir=ui_audio_dir,
+                    ui_browser_session=ui_browser_session,
                 )
-                out_suffix = local_source.suffix if local_source else ".mp3"
-                out_path = audio_dir / f"deal{deal_id}_act{act.get('ID')}_{row.get('disk_file_id')}_{ts}{out_suffix}"
-                if local_source:
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(local_source, out_path)
-                    row["local_audio_source_used"] = True
-                    row["local_audio_source_path"] = str(local_source)
-                    print(f"[AUDIO] Использую локальный файл: activity_id={row.get('activity_id')} file={local_source}", flush=True)
-                else:
-                    row["local_audio_source_used"] = False
-                    if not candidates:
-                        raise RuntimeError("Не нашёл URL кандидаты для скачивания (resolver не смог), и локальный аудиофайл тоже не найден.")
-                    rest_timeout_sec = max(5, int(getattr(args, "rest_timeout_sec", 20) or 20))
-                    dl = download_best_effort(candidates=candidates, out_path=out_path, timeout_sec=rest_timeout_sec, retries=0)
-                    if not dl.ok or not dl.path:
-                        row["download_attempts"] = [a.__dict__ for a in dl.attempts]
-                        if args.ui_download:
-                            try:
-                                from ui_audio_downloader import (
-                                    UiBrowserSession,
-                                )
-
-                                ui_res = None
-                                ui_errors: List[str] = []
-                                mode = str(getattr(args, "ui_download_mode", "auto") or "auto")
-                                browser = str(getattr(args, "ui_browser", "chrome"))
-                                ui_timeout_sec = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
-                                browser_profile_directory = str(getattr(args, "browser_profile_directory", "Default") or "Default")
-                                if ui_browser_session is None:
-                                    ui_browser_session = UiBrowserSession(
-                                        downloads_dir=ui_audio_dir,
-                                        chrome_profile_dir=args.chrome_profile_dir,
-                                        browser=browser,
-                                        browser_profile_directory=browser_profile_directory,
-                                    )
-
-                                if mode in {"direct", "auto"}:
-                                    for candidate in [html.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]:
-                                        print(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}", flush=True)
-                                        ui_res = ui_browser_session.download_url(
-                                            candidate,
-                                            timeout_sec=ui_timeout_sec,
-                                            referer_url=row["deal_url"],
-                                        )
-                                        if ui_res.ok and ui_res.path:
-                                            break
-                                        ui_errors.append(f"url={candidate}: {ui_res.error if ui_res else 'no result'}")
-
-                                if (ui_res is None or not ui_res.ok) and mode in {"timeline", "auto"}:
-                                    print(f"[UI] Пробую таймлайн сделки через {browser}, таймаут {ui_timeout_sec} сек.: activity_id={row.get('activity_id')}", flush=True)
-                                    ui_res = ui_browser_session.download_call_from_deal_timeline(
-                                        row["deal_url"],
-                                        int(row.get("activity_id") or 0),
-                                        timeout_sec=ui_timeout_sec,
-                                    )
-                                    if not ui_res.ok:
-                                        ui_errors.append(f"timeline activity_id={row.get('activity_id')}: {ui_res.error}")
-
-                                row["ui_download_errors"] = ui_errors
-                                if ui_res is None or not ui_res.ok or not ui_res.path:
-                                    raise RuntimeError("; ".join(ui_errors) or (ui_res.error if ui_res else "UI download failed"))
-                                out_path.parent.mkdir(parents=True, exist_ok=True)
-                                out_path.write_bytes(Path(ui_res.path).read_bytes())
-                                row["ui_download_used"] = True
-                                row["ui_download_path"] = str(ui_res.path)
-                            except Exception as e:
-                                raise RuntimeError(f"Не удалось скачать аудио (REST+UI): {dl.error}; UI: {e}")
-                        else:
-                            raise RuntimeError(f"Не удалось скачать аудио: {dl.error}")
-                row["audio_path"] = str(out_path)
-                row["audio_size_bytes"] = int(out_path.stat().st_size) if out_path.exists() else None
-                bad = validate_audio_file(out_path)
-                if bad:
-                    raise RuntimeError(f"Скачанный файл не похож на аудио: {bad}")
 
                 # ASR
-                task = asr.start_transcribing(str(out_path), diarize=bool(args.diarize), remove_timestamps=True)
-                row["bitnewton_task_id"] = task.task_id
-                text = asr.wait_and_get_text(task.task_id, timeout_sec=1800)
-                transcript_path = save_transcript_file(
-                    deal_id=str(deal_id),
+                text, task_id, transcript_path = transcribe_with_bitnewton(
+                    asr=asr,
+                    audio_path=out_path,
+                    deal_id=deal_id,
                     activity_id=row.get("activity_id"),
-                    task_id=task.task_id,
-                    text=text or "",
+                    diarize=bool(args.diarize),
                 )
+                row["bitnewton_task_id"] = task_id
                 row["transcript_path"] = str(transcript_path)
                 row["transcript_text"] = text or ""
                 row["transcript_excerpt"] = (text or "")[:1200]
-
                 bitrix_text = ""
                 if args.fetch_bitrix_card_transcript and args.ui_download:
                     try:
@@ -1792,7 +1351,7 @@ def run_sync(args: argparse.Namespace) -> Tuple[int, Path, Path]:
                 state_cache[call_id] = {
                     "hash": txt_hash,
                     "transcript_path": str(transcript_path),
-                    "bitnewton_task_id": task.task_id,
+                    "bitnewton_task_id": task_id,
                     "updated_at": datetime.now().isoformat(timespec="seconds"),
                     "deal_id": deal_id,
                     "activity_id": row.get("activity_id"),

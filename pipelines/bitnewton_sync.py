@@ -6,7 +6,7 @@ import os
 import re
 import shutil
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -26,9 +26,14 @@ from pipelines.calls import (
     guess_duration_minutes,
     guess_duration_sec,
     list_deal_call_activities,
-    parse_dt,
     split_call_center_operator_activities,
     user_name_map,
+)
+from pipelines.deals import (
+    deal_get,
+    deal_id_from_report_row,
+    deal_url_from_id,
+    resolve_deal_ids,
 )
 from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.reporting import (
@@ -38,17 +43,11 @@ from pipelines.reporting import (
     prepare_report_rows,
     publish_latest_report,
 )
-from pipelines.stages import (
-    DEAL_TOTAL_WORK_CRITICAL_MINUTES,
-    DEAL_TOTAL_WORK_WARNING_MINUTES,
-    DEFAULT_STAGE_NAMES,
-    STAGE_STUCK_THRESHOLD_HOURS,
-    format_minutes_for_threshold as _format_minutes_for_threshold,
-    stage_display_name,
-    stage_duration_thresholds,
-    stage_history_type_label,
-    stage_order_map,
-    threshold_status,
+from pipelines.stages import safe_int
+from pipelines.stage_history import (
+    attach_stage_history_metrics,
+    fetch_stage_history_by_deals,
+    fetch_stage_name_map,
 )
 from pipelines.scoring import (
     HANDLING_RE,
@@ -144,299 +143,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--cleanup-output-days", type=int, default=30, help="Автоудаление отчетов, расшифровок и аудио старше N дней; 0 отключает")
     parser.add_argument("--cleanup-chrome-tmp-days", type=int, default=7, help="Удалять старые reports/chrome_profile_tmp_* (дней хранения)")
     return parser
-
-
-def deal_url_from_id(domain: str, deal_id: str) -> str:
-    domain = (domain or "").strip().replace("https://", "").replace("http://", "").strip("/")
-    return f"https://{domain}/crm/deal/details/{deal_id}/"
-
-
-def safe_int(x: Any) -> Optional[int]:
-    try:
-        return int(x)
-    except Exception:
-        return None
-
-
-def fetch_deals_by_filter(api: Bitrix24API, flt: Dict[str, Any], limit: int = 200) -> List[Dict[str, Any]]:
-    deals: List[Dict[str, Any]] = []
-    start: Optional[int] = 0
-    page_size = 50
-    max_items = max(0, int(limit or 0))
-    if max_items <= 0:
-        return deals
-
-    while start is not None and len(deals) < max_items:
-        res = api.call(
-            "crm.deal.list",
-            {
-                "filter": flt,
-                "select": ["ID", "TITLE", "ASSIGNED_BY_ID", "STAGE_ID", "DATE_CREATE"],
-                "order": {"ID": "DESC"},
-                "start": start,
-            },
-        )
-        chunk = res.get("result", []) or []
-        if not chunk:
-            break
-
-        remaining = max_items - len(deals)
-        deals.extend(chunk[:remaining])
-        if len(deals) >= max_items:
-            break
-
-        next_start = res.get("next")
-        if next_start is not None:
-            start = safe_int(next_start)
-        else:
-            total = safe_int(res.get("total"))
-            start = start + page_size
-            if total is None or start >= total:
-                start = None
-
-    return deals
-
-
-def normalize_deal_filter_dates(flt: Dict[str, Any]) -> Dict[str, Any]:
-    out = dict(flt or {})
-    date_to = out.pop("<=DATE_CREATE", None)
-    if isinstance(date_to, str) and re.match(r"^\d{4}-\d{2}-\d{2}$", date_to.strip()):
-        next_day = datetime.strptime(date_to.strip(), "%Y-%m-%d") + timedelta(days=1)
-        out["<DATE_CREATE"] = next_day.date().isoformat()
-    elif date_to is not None:
-        out["<=DATE_CREATE"] = date_to
-    return out
-
-
-def deal_get(api: Bitrix24API, deal_id: str) -> Dict[str, Any]:
-    return api.call("crm.deal.get", {"id": int(deal_id)}).get("result", {}) or {}
-
-
-def stage_entity_id_from_stage(stage_id: str) -> str:
-    stage_id = str(stage_id or "")
-    m = re.match(r"^C(\d+):", stage_id)
-    if m:
-        return f"DEAL_STAGE_{m.group(1)}"
-    return "DEAL_STAGE"
-
-
-def fetch_stage_name_map(api: Bitrix24API, stage_ids: List[str]) -> Dict[str, str]:
-    out = dict(DEFAULT_STAGE_NAMES)
-    entities = sorted({stage_entity_id_from_stage(s) for s in stage_ids if s})
-    for entity in entities:
-        try:
-            res = api.call("crm.status.list", {"filter": {"ENTITY_ID": entity}, "order": {"SORT": "ASC"}})
-            for row in res.get("result") or []:
-                sid = str(row.get("STATUS_ID") or "").strip()
-                name = str(row.get("NAME") or "").strip()
-                if sid and name:
-                    out[sid] = name
-        except Exception:
-            continue
-    return out
-
-
-
-def _minutes_between(a: Optional[datetime], b: Optional[datetime]) -> Optional[float]:
-    if not a or not b:
-        return None
-    try:
-        return round(max(0.0, (b - a).total_seconds() / 60.0), 2)
-    except Exception:
-        return None
-
-
-def _minutes_since(dt: Optional[datetime]) -> Optional[float]:
-    if not dt:
-        return None
-    try:
-        now = datetime.now(dt.tzinfo) if dt.tzinfo else datetime.now()
-        return round(max(0.0, (now - dt).total_seconds() / 60.0), 2)
-    except Exception:
-        return None
-
-
-
-def _stage_history_items_from_response(data: Dict[str, Any]) -> List[Dict[str, Any]]:
-    result = data.get("result")
-    if isinstance(result, dict):
-        items = result.get("items") or []
-    else:
-        items = result or []
-    return [item for item in items if isinstance(item, dict)]
-
-
-def _stage_history_next_start(data: Dict[str, Any], current_start: int, items_count: int) -> Optional[int]:
-    result = data.get("result")
-    next_value = data.get("next")
-    if next_value is None and isinstance(result, dict):
-        next_value = result.get("next")
-    if next_value is not None:
-        return safe_int(next_value)
-
-    total = safe_int(data.get("total") or (result.get("total") if isinstance(result, dict) else None))
-    if total is not None and current_start + items_count < total:
-        return current_start + max(1, items_count)
-    return None
-
-
-def fetch_stage_history_by_deals(api: Bitrix24API, deal_ids: List[str], chunk_size: int = 50) -> Dict[str, List[Dict[str, Any]]]:
-    out: Dict[str, List[Dict[str, Any]]] = {str(deal_id): [] for deal_id in deal_ids if deal_id}
-    clean_ids = [int(d) for d in dict.fromkeys(str(deal_id) for deal_id in deal_ids if str(deal_id).isdigit())]
-    for chunk_start in range(0, len(clean_ids), max(1, chunk_size)):
-        chunk = clean_ids[chunk_start : chunk_start + max(1, chunk_size)]
-        start: Optional[int] = 0
-        while start is not None:
-            params: Dict[str, Any] = {
-                "entityTypeId": 2,
-                "filter": {"OWNER_ID": chunk},
-                "order": {"OWNER_ID": "ASC", "ID": "ASC"},
-                "start": start,
-            }
-            data = api.call("crm.stagehistory.list", params)
-            items = _stage_history_items_from_response(data)
-            for item in items:
-                owner_id = str(item.get("OWNER_ID") or "").strip()
-                if owner_id:
-                    out.setdefault(owner_id, []).append(item)
-            start = _stage_history_next_start(data, int(start or 0), len(items))
-            if start is not None:
-                time.sleep(0.1)
-    return out
-
-
-def summarize_stage_history(
-    items: List[Dict[str, Any]],
-    stage_map: Optional[Dict[str, str]] = None,
-) -> Dict[str, Any]:
-    ranks = stage_order_map(stage_map)
-    sorted_items = sorted(
-        [item for item in items if isinstance(item, dict)],
-        key=lambda item: (str(item.get("CREATED_TIME") or ""), safe_int(item.get("ID")) or 0),
-    )
-    normalized: List[Dict[str, Any]] = []
-    return_count = 0
-    reached_final = False
-    previous_rank: Optional[int] = None
-
-    for index, item in enumerate(sorted_items):
-        stage_id = str(item.get("STAGE_ID") or "").strip()
-        created_at = parse_dt(item.get("CREATED_TIME"))
-        next_dt = parse_dt(sorted_items[index + 1].get("CREATED_TIME")) if index + 1 < len(sorted_items) else None
-        duration_minutes = _minutes_between(created_at, next_dt)
-        rank = ranks.get(stage_id)
-        if previous_rank is not None and rank is not None and rank < previous_rank:
-            return_count += 1
-        if rank is not None:
-            previous_rank = rank
-        semantic = str(item.get("STAGE_SEMANTIC_ID") or "").upper()
-        if semantic in {"S", "F"} or stage_id.endswith(":WON") or stage_id.endswith(":LOSE") or stage_id in {"WON", "LOSE"}:
-            reached_final = True
-        normalized.append(
-            {
-                "stage_history_event_id": item.get("ID"),
-                "stage_history_event_type": stage_history_type_label(item.get("TYPE_ID")),
-                "stage_history_created_at": item.get("CREATED_TIME"),
-                "stage_id": stage_id,
-                "stage_name": stage_display_name(stage_id, stage_map=stage_map),
-                "stage_order": rank,
-                "stage_duration_minutes": duration_minutes,
-                "stage_duration_hours": round(duration_minutes / 60.0, 2) if duration_minutes is not None else None,
-                "stage_is_current": index == len(sorted_items) - 1,
-            }
-        )
-
-    current = normalized[-1] if normalized else {}
-    current_stage_id = current.get("stage_id") if current else None
-    stage_warning_minutes, stage_critical_minutes = stage_duration_thresholds(current_stage_id)
-    current_age_minutes = _minutes_since(parse_dt(current.get("stage_history_created_at"))) if current else None
-    current_age_status = threshold_status(current_age_minutes, stage_warning_minutes, stage_critical_minutes)
-    first_dt = parse_dt(normalized[0].get("stage_history_created_at")) if normalized else None
-    last_dt = parse_dt(normalized[-1].get("stage_history_created_at")) if normalized else None
-    if reached_final:
-        total_work_minutes = _minutes_between(first_dt, last_dt)
-    else:
-        total_work_minutes = _minutes_since(first_dt)
-    total_work_status = threshold_status(
-        total_work_minutes,
-        DEAL_TOTAL_WORK_WARNING_MINUTES,
-        DEAL_TOTAL_WORK_CRITICAL_MINUTES,
-    )
-    if reached_final:
-        current_age_status = "Финал"
-    path_names = [str(item.get("stage_name") or item.get("stage_id") or "").strip() for item in normalized]
-    compact_path: List[str] = []
-    for name in path_names:
-        if name and (not compact_path or compact_path[-1] != name):
-            compact_path.append(name)
-
-    if not normalized:
-        risk = "Нет истории"
-        recommendation = "История перемещения по стадиям не найдена. Проверьте права вебхука и корректность выборки."
-    elif reached_final:
-        risk = "Финал"
-        recommendation = "Сделка достигла финальной стадии. Для анализа важно сопоставить итог со звонками и причиной результата."
-    elif current_age_status == "Тревога":
-        risk = "Тревога"
-        recommendation = (
-            f"Сделка находится на текущей стадии дольше критического порога "
-            f"({_format_minutes_for_threshold(stage_critical_minutes)}). Нужен следующий шаг или актуализация стадии."
-        )
-    elif total_work_status == "Тревога":
-        risk = "Тревога по сроку сделки"
-        recommendation = (
-            f"Общее время сделки в работе выше критического порога "
-            f"({_format_minutes_for_threshold(DEAL_TOTAL_WORK_CRITICAL_MINUTES)}). Проверьте причину задержки по воронке."
-        )
-    elif current_age_status == "Предупреждение":
-        risk = "Предупреждение"
-        recommendation = (
-            f"Сделка приближается к критическому сроку на текущей стадии. "
-            f"Предупреждение после {_format_minutes_for_threshold(stage_warning_minutes)}, "
-            f"тревога после {_format_minutes_for_threshold(stage_critical_minutes)}."
-        )
-    elif return_count > 0:
-        risk = "Возвраты"
-        recommendation = "Есть возвраты на предыдущие стадии. Проверьте, не переводится ли сделка вперед без готовности клиента."
-    elif len(normalized) <= 1:
-        risk = "Нет продвижения"
-        recommendation = "Сделка пока не двигалась по воронке. Проверьте, есть ли звонок, выявленная потребность и запланированный следующий шаг."
-    else:
-        risk = "OK"
-        recommendation = "Движение по стадиям выглядит рабочим. Сопоставьте переходы с качеством звонков и фиксацией следующего шага."
-
-    return {
-        "stage_history_items": normalized,
-        "stage_history_count": len(normalized),
-        "stage_history_path": " → ".join(compact_path),
-        "stage_last_change_at": current.get("stage_history_created_at"),
-        "stage_current_age_minutes": current_age_minutes,
-        "stage_current_age_days": round(current_age_minutes / 1440.0, 2) if current_age_minutes is not None else None,
-        "stage_warning_threshold": _format_minutes_for_threshold(stage_warning_minutes),
-        "stage_critical_threshold": _format_minutes_for_threshold(stage_critical_minutes),
-        "stage_current_age_status": current_age_status,
-        "deal_total_work_minutes": total_work_minutes,
-        "deal_total_work_days": round(total_work_minutes / 1440.0, 2) if total_work_minutes is not None else None,
-        "deal_total_work_warning_threshold": _format_minutes_for_threshold(DEAL_TOTAL_WORK_WARNING_MINUTES),
-        "deal_total_work_critical_threshold": _format_minutes_for_threshold(DEAL_TOTAL_WORK_CRITICAL_MINUTES),
-        "deal_total_work_status": total_work_status,
-        "stage_return_count": return_count,
-        "stage_reached_final": reached_final,
-        "stage_movement_risk": risk,
-        "stage_movement_recommendation": recommendation,
-    }
-
-
-def attach_stage_history_metrics(
-    rows: List[Dict[str, Any]],
-    stage_history_by_deal: Dict[str, List[Dict[str, Any]]],
-    stage_map: Optional[Dict[str, str]] = None,
-) -> None:
-    for row in rows:
-        deal_id = deal_id_from_report_row(row)
-        if not deal_id:
-            continue
-        row.update(summarize_stage_history(stage_history_by_deal.get(str(deal_id), []), stage_map=stage_map))
 
 
 def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
@@ -701,17 +407,6 @@ def load_report_json(path: str | Path) -> List[Dict[str, Any]]:
     if not isinstance(raw, list):
         raise SystemExit(f"Ожидался JSON-список строк отчета: {report_path}")
     return [r for r in raw if isinstance(r, dict)]
-
-
-def deal_id_from_report_row(row: Dict[str, Any]) -> Optional[str]:
-    deal_id = row.get("deal_id")
-    if deal_id:
-        deal_str = str(deal_id).strip()
-        if deal_str.isdigit():
-            return deal_str
-    url = str(row.get("deal_url") or "").strip()
-    m = re.search(r"/crm/deal/details/(\d+)/?", url)
-    return m.group(1) if m else None
 
 
 def load_retry_scope(path: str | Path) -> Dict[str, Any]:
@@ -1045,41 +740,6 @@ def attach_transcription_to_bitrix(api: Bitrix24API, call_id: str, transcript_te
             errors.append(f"{cid}: {e}")
 
     raise RuntimeError("Не удалось прикрепить расшифровку в Bitrix: " + " | ".join(errors))
-
-
-def resolve_deal_ids(args: argparse.Namespace, api: Bitrix24API) -> List[str]:
-    if args.mode == "single":
-        if args.deal_id:
-            deal_id = str(args.deal_id).strip()
-            if not deal_id.isdigit():
-                raise SystemExit(f"--deal-id должен быть числом. Сейчас: {deal_id!r}")
-            return [deal_id]
-        if args.deal_url:
-            u = str(args.deal_url).strip()
-            # Пытаемся вытащить числовой ID из URL вида .../crm/deal/details/83735/
-            m = re.search(r"/crm/deal/details/(\d+)/?", u)
-            if m:
-                return [m.group(1)]
-            # fallback: последний сегмент
-            tail = u.rstrip("/").split("/")[-1]
-            if tail.isdigit():
-                return [tail]
-            raise SystemExit(
-                "Не смог распознать ID сделки из --deal-url. "
-                "Ожидаю ссылку вида https://<domain>/crm/deal/details/12345/ "
-                f"(получил: {u!r})."
-            )
-        raise SystemExit("Для --mode single нужен --deal-id или --deal-url")
-
-    if not args.mode:
-        raise SystemExit("Нужен --mode single/filter, --retry-errors-from или --reevaluate-from")
-
-    if not args.filter_json:
-        raise SystemExit("Для --mode filter нужен --filter-json")
-    flt = normalize_deal_filter_dates(json.loads(Path(args.filter_json).read_text(encoding="utf-8")))
-    deals = fetch_deals_by_filter(api, flt, limit=args.limit)
-    print(f"Найдено сделок: {len(deals)}")
-    return [str(d.get("ID")) for d in deals if d.get("ID")]
 
 
 def run_sync(args: argparse.Namespace) -> Tuple[int, Path, Path]:

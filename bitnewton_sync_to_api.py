@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from pipelines.bitnewton_sync import build_parser, run_sync
+from pipelines.bitnewton_sync import run_sync
+from pipelines.cli import build_parser
 
 
 def main() -> None:

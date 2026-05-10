@@ -58,3 +58,12 @@ python bitnewton_sync_to_api.py --mode single --deal-url https://online-kassa.bi
 - `bitrix/recordings.py` - поиск записи звонка и URL-кандидатов.
 - `download_resolver.py` и `ui_audio_downloader.py` - скачивание записей.
 - `kpi_config*.json` - профили оценки звонков.
+
+## Документация
+
+- `docs/TROUBLESHOOTING.txt` - диагностика типовых проблем запуска.
+- `docs/INSTALL_FFMPEG.txt` - установка FFmpeg.
+- `docs/kriterii_ocenki.txt` - исходные критерии оценки звонков.
+- `docs/_archive/` - старые служебные заметки, сохраненные только для истории.
+
+`reports/`, `.env`, аудио, временные профили браузера и локальные кэши исключены из git через `.gitignore`.

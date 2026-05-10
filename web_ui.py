@@ -9,7 +9,9 @@ from typing import Optional
 import streamlit as st
 import pandas as pd
 from bitrix24_api import Bitrix24API
-from pipelines.bitnewton_sync import DEFAULT_STAGE_NAMES, cleanup_old_outputs, kpi_profile_display
+from pipelines.bitnewton_sync import cleanup_old_outputs
+from pipelines.reporting import kpi_profile_display
+from pipelines.stages import DEFAULT_STAGE_NAMES
 
 
 ROOT = Path(__file__).resolve().parent

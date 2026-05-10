@@ -19,12 +19,11 @@ from asr.bitnewton import BitNewtonError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
 from bitrix.recordings import resolve_call_recording
 from download_resolver import download_best_effort
+from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR, TRANSCRIPTS_DIR
+from pipelines.reporting import publish_latest_report
+from pipelines.scoring import recalculate_overall_score
 
 
-REPORTS_DIR = Path("reports")
-TRANSCRIPTS_DIR = REPORTS_DIR / "transcripts"
-LATEST_JSON_REPORT = REPORTS_DIR / "latest_bitnewton_report.json"
-LATEST_XLSX_REPORT = REPORTS_DIR / "latest_bitnewton_report.xlsx"
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".aac", ".opus", ".flac", ".wma"}
 FIRST_RESPONSE_SLA_HOURS = 0.5
 MAX_GAP_BETWEEN_CALLS_HOURS = 72.0
@@ -4056,17 +4055,6 @@ def cleanup_old_outputs(base_dir: Path, keep_days: int = 30, extra_audio_dirs: O
         return counts
 
 
-def publish_latest_report(json_path: Path, xlsx_path: Path) -> None:
-    try:
-        REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-        if json_path.exists():
-            shutil.copy2(json_path, LATEST_JSON_REPORT)
-        if xlsx_path.exists():
-            shutil.copy2(xlsx_path, LATEST_XLSX_REPORT)
-    except Exception as e:
-        print(f"[WARN] Не удалось обновить latest-отчет: {e}", flush=True)
-
-
 def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str], text: str, kpi: Dict[str, Any], suffix: str = "") -> None:
     first_h = row.get("first_response_hours")
     first_m = row.get("first_response_minutes")
@@ -4093,30 +4081,6 @@ def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str],
         row[f"{k}{suffix}"] = v
 
     recalculate_overall_score(row, kpi, suffix=suffix)
-
-
-def recalculate_overall_score(row: Dict[str, Any], kpi: Dict[str, Any], suffix: str = "") -> None:
-    w = kpi.get("weights", {})
-    ow = w.get("overall", {})
-    call_weight = float(ow.get("call_quality", 0.50))
-    crm_weight = float(ow.get("crm_alignment", 0.50))
-    total_weight = call_weight + crm_weight
-    if total_weight <= 0:
-        call_weight = crm_weight = 0.50
-        total_weight = 1.0
-    call_weight = call_weight / total_weight
-    crm_weight = crm_weight / total_weight
-    crm_work_score = float(row.get(f"crm_work_score{suffix}") or row.get("crm_work_score") or 0)
-    row[f"overall_score{suffix}"] = round(
-        call_weight * float(row.get(f"call_quality_score{suffix}") or 0)
-        + crm_weight * crm_work_score,
-        2,
-    )
-    row[f"overall_score_details{suffix}"] = (
-        f"Итог = качество разговора {call_weight * 100:.0f}% "
-        f"+ ведение CRM {crm_weight * 100:.0f}%. "
-        "Ведение CRM считается по CRM-чек-листу: заполнение карточки, наличие звонка менеджера, синхронизация следующего шага, связь разговора с данными сделки и движение по воронке."
-    )
 
 
 def refresh_crm_scores_after_stage_metrics(rows: List[Dict[str, Any]], kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]] = None) -> None:

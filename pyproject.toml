@@ -1,0 +1,35 @@
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.ruff]
+target-version = "py313"
+line-length = 120
+exclude = [
+    ".git",
+    ".venv",
+    "venv",
+    "__pycache__",
+    "reports",
+    "system--diarize",
+    "docs/_archive",
+]
+
+[tool.ruff.lint]
+# Start with correctness checks only. Expand after the monolith is split.
+select = ["E9", "F63", "F7", "F82"]
+
+[tool.black]
+target-version = ["py313"]
+line-length = 120
+exclude = '''
+/(
+  \.git
+  | \.venv
+  | venv
+  | reports
+  | system--diarize
+  | docs/_archive
+)/
+'''

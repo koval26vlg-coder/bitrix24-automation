@@ -1,0 +1,36 @@
+# Secrets and local environment
+.env
+.env.*
+!.env.example
+*.key
+sa-key.json
+service-account*.json
+credentials*.json
+
+# Python/runtime caches
+*.pyc
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+venv/
+.venv/
+
+# Local outputs and state
+*.xlsx
+*.csv
+*.log
+*.db
+*.sqlite
+state.db
+state_cache*.json
+reports/
+system--diarize/
+
+# Browser automation artifacts
+reports/audio/
+reports/audio_ui/
+reports/call_records/
+reports/chrome_profile/
+reports/chrome_profile_tmp_*/
+reports/selenium_download_*/

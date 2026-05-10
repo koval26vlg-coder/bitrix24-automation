@@ -1,0 +1,60 @@
+{
+  "profile": {
+    "name": "sales",
+    "version": "1"
+  },
+  "sla": {
+    "first_response_hours": 0.5,
+    "max_gap_between_calls_hours": 48.0
+  },
+  "weights": {
+    "overall": {
+      "call_quality": 0.5,
+      "discipline": 0.0,
+      "crm_alignment": 0.5
+    },
+    "discipline_split": {
+      "first_response": 1.0,
+      "cadence": 0.0
+    },
+    "crm_alignment_split": {
+      "deal_quality": 0.55,
+      "alignment": 0.45
+    }
+  },
+  "deal_quality_weights": {
+    "has_contact": 30,
+    "has_amount": 30,
+    "has_title": 20,
+    "has_comments": 20
+  },
+  "call_quality_weights": {
+    "greeting": 20,
+    "needs_discovery": 35,
+    "objection_work": 20,
+    "next_step": 25
+  },
+  "alignment_weights": {
+    "title_hit": 10,
+    "title_hit_cap": 30,
+    "amount_mentioned": 30,
+    "next_step_synced": 40
+  },
+  "patterns": {
+    "greeting": [
+      "\\b(добрый|здравств\\w*|привет)\\b"
+    ],
+    "needs_discovery": [
+      "\\b(потребност\\w*|задач\\w*|интересу\\w*|цель|боль|приоритет|срок\\w*|нужно|необходим\\w*|уточн\\w*|подскаж\\w*)\\b",
+      "\\b(для чего|какой бюджет|когда планируете|что нужно|что необходимо)\\b"
+    ],
+    "objection_work": [
+      "\\b(дорог\\w*|возраж\\w*|не подходит|сомнева\\w*|подума\\w*|нет бюджета|не смож\\w*|не получится|нет возможности)\\b",
+      "\\b(давайте сравним|почему|что смущает)\\b"
+    ],
+    "next_step": [
+      "\\b(кп|коммерческ(ое|ого) предложен|счет|оплат|договор|предоплат)\\b",
+      "\\b(перезвон\\w*|встреч\\w*|созвон\\w*|отправ\\w*|вышл\\w*|согласу\\w*|подпиш\\w*|уточн\\w*)\\b"
+    ]
+  }
+}

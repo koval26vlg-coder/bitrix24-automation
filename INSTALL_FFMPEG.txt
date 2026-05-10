@@ -1,0 +1,60 @@
+USTANOVKA FFMPEG DLYa WINDOWS
+================================================================================
+
+SPOSOB 1: CHEREZ WINGET (REKOMENDUYETSYA)
+------------------------------------------
+Otkroyte PowerShell ili CMD i vypolnite:
+
+  winget install ffmpeg
+
+Posle ustanovki perezapustite terminal.
+
+
+SPOSOB 2: RUCHNAYA USTANOVKA
+-----------------------------
+1. Skachayte ffmpeg:
+   https://github.com/BtbN/FFmpeg-Builds/releases
+
+   Vyberte fayl: ffmpeg-master-latest-win64-gpl.zip
+
+2. Raspakuyte arhiv v C:\ffmpeg
+
+3. Dobavte v PATH:
+   - Nazhмite Win + R
+   - Vvedite: sysdm.cpl
+   - Vkladka "Dopolnitelno" -> "Peremennye sredy"
+   - V "Sistemnye peremennye" naydite "Path"
+   - Nazhмite "Izmenit" -> "Sozdat"
+   - Dobavte: C:\ffmpeg\bin
+   - Nazhмite OK
+
+4. Perezapustite terminal i proverite:
+   ffmpeg -version
+
+
+SPOSOB 3: CHEREZ CHOCOLATEY
+----------------------------
+Esli u vas ustanovlen Chocolatey:
+
+  choco install ffmpeg
+
+
+PROVERKA USTANOVKI
+------------------
+Posle ustanovki vypolnite:
+
+  ffmpeg -version
+
+Dolzhna poyavitsya informaciya o versii ffmpeg.
+
+
+POSLE USTANOVKI
+---------------
+Zapustite Bit.Newton UI snova:
+
+  run_transcription.bat
+
+ffmpeg ostavlen tolko kak vspomogatelnyy instrument dlya raboty s audio.
+Osnovnaya transkripciya v proekte idet cherez Bit.Newton.
+
+================================================================================

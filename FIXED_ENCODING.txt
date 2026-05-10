@@ -1,0 +1,45 @@
+====================================
+PROBLEMA S KODIROVKOY ISPRAVLENA!
+====================================
+
+U vas teper est 2 versii mastera nastroyki:
+
+1. setup_wizard.bat - russkaya versiya (translitom)
+2. setup_wizard_en.bat - angliyskaya versiya
+
+Obe versii rabotayut odinakovo i pomogut:
+- Otkryt Bitrix24 v brauzere
+- Pokazat poshagovye instruktsii
+- Otkryt fayl .env dlya redaktirovaniya
+- Proverit podklyuchenie
+
+====================================
+
+ZAPUSTITE: setup_wizard_en.bat
+
+(Angliyskaya versiya nadezhneye rabotaet)
+
+====================================
+
+ILI PROSTOY SPOSOB BEZ MASTERA:
+
+1. Otkroyte v brauzere:
+   https://online-kassa.bitrix24.ru
+
+2. Naydite: Prilozheniya -> Vebhuki -> Vhodyashchiy vebhuk
+
+3. Sozdayte webhook s pravami CRM
+
+4. Skopiruyte URL (naprimer: https://online-kassa.bitrix24.ru/rest/123/abc123/)
+
+5. Otkroyte fayl .env v Bloknote
+
+6. Vstavte URL vmesto "VSTAVTE_SYUDA_VASH_WEBHOOK_KOD"
+
+7. Sohranite fayl
+
+8. Zapustite test_connection.bat
+
+====================================
+
+Fayl .env uzhe sozdan i zhdet vashego webhook URL!

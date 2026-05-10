@@ -1,0 +1,57 @@
+====================================
+SISTEMA GOTOVA I RABOTAET!
+====================================
+
+Webhook podklyuchen uspeshno!
+Pervyy otchet sozdан!
+
+====================================
+CHTO TEPER MOZHNO DELAT:
+====================================
+
+1. ZAPUSTITE: menu.bat
+   - Interaktivnoe menyu so vsemi otchetami
+
+2. ILI ZAPUSKAYTE NAPRYAMUYU:
+   - run_leads.bat - otchety po lidam
+   - run_deals.bat - otchety po sdelkam
+   - run_contacts.bat - otchety po kontaktam
+   - run_full_report.bat - polnyy otchet CRM
+
+====================================
+SOZDANNYE OTCHETY:
+====================================
+
+Vse otchety v papke: reports/
+
+Uzhe sozdano:
+- leads_20260427_184111.xlsx (789 lidov za 7 dney)
+
+====================================
+VOZMOZHNOSTI:
+====================================
+
+- Otchety po lidam, sdelkam, kontaktam
+- Filtratsiya po datam (7, 30, 90 dney)
+- Statistika i analitika
+- Export v Excel
+- Avtomaticheskaya obrabotka vseh zapisey
+
+====================================
+PRAVA WEBHOOK:
+====================================
+
+U vas nastroeny prava:
+- CRM (chtenie i zapis)
+- Telefoniya (zvonki)
+- Disk (fayly)
+- Polzovateli (sotrudniki)
+
+V buduschem mozhno dobavit:
+- Analiz zvonkov
+- Transkriptsiya
+- Statistika po zvonkam
+
+====================================
+
+VSE GOTOVO! Zapuskayte menu.bat! 🎉

@@ -1,0 +1,58 @@
+{
+  "profile": {
+    "name": "sales_soft",
+    "version": "1"
+  },
+  "sla": {
+    "first_response_hours": 0.5,
+    "max_gap_between_calls_hours": 96.0
+  },
+  "weights": {
+    "overall": {
+      "call_quality": 0.5,
+      "discipline": 0.0,
+      "crm_alignment": 0.5
+    },
+    "discipline_split": {
+      "first_response": 1.0,
+      "cadence": 0.0
+    },
+    "crm_alignment_split": {
+      "deal_quality": 0.7,
+      "alignment": 0.3
+    }
+  },
+  "deal_quality_weights": {
+    "has_contact": 25,
+    "has_amount": 25,
+    "has_title": 25,
+    "has_comments": 25
+  },
+  "call_quality_weights": {
+    "greeting": 25,
+    "needs_discovery": 30,
+    "objection_work": 15,
+    "next_step": 30
+  },
+  "alignment_weights": {
+    "title_hit": 10,
+    "title_hit_cap": 40,
+    "amount_mentioned": 25,
+    "next_step_synced": 35
+  },
+  "patterns": {
+    "greeting": [
+      "\\b(добрый|здравств\\w*|привет)\\b"
+    ],
+    "needs_discovery": [
+      "\\b(потребност\\w*|задач\\w*|интересу\\w*|цель|срок\\w*|нужно|необходим\\w*|уточн\\w*|подскаж\\w*)\\b"
+    ],
+    "objection_work": [
+      "\\b(дорог\\w*|возраж\\w*|не подходит|сомнева\\w*|подума\\w*|не смож\\w*|не получится|нет возможности)\\b"
+    ],
+    "next_step": [
+      "\\b(кп|коммерческ(ое|ого) предложен|счет|договор|оплат)\\b",
+      "\\b(перезвон\\w*|встреч\\w*|созвон\\w*|отправ\\w*|вышл\\w*|согласу\\w*|уточн\\w*)\\b"
+    ]
+  }
+}

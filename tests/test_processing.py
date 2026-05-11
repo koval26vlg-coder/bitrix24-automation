@@ -42,10 +42,10 @@ def test_process_call_reuses_cached_transcript(monkeypatch, tmp_path):
     )
     state_cache = {}
     monkeypatch.setattr(
-        "pipelines.processing.load_cached_transcript",
+        "pipelines.processing.calls.load_cached_transcript",
         lambda state, call_id, deal_id, activity_id: (cached_path.read_text(encoding="utf-8"), cached_path),
     )
-    monkeypatch.setattr("pipelines.processing._save_state_cache", lambda state: None)
+    monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
     ctx = ProcessingContext(
         api=object(),
@@ -117,19 +117,22 @@ def test_process_call_without_cache_downloads_transcribes_and_attaches(monkeypat
         )
         return {"ok": True, "call_id": call_id}
 
-    monkeypatch.setattr("pipelines.processing.load_cached_transcript", lambda *args: (None, None))
-    monkeypatch.setattr("pipelines.processing.download_audio_for_call", fake_download_audio_for_call)
-    monkeypatch.setattr("pipelines.processing.transcribe_with_bitnewton", fake_transcribe_with_bitnewton)
-    monkeypatch.setattr("pipelines.processing.attach_transcription_to_bitrix", fake_attach_transcription_to_bitrix)
+    monkeypatch.setattr("pipelines.processing.calls.load_cached_transcript", lambda *args: (None, None))
+    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call)
+    monkeypatch.setattr("pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton)
     monkeypatch.setattr(
-        "pipelines.processing.activity_get",
+        "pipelines.processing.calls.attach_transcription_to_bitrix",
+        fake_attach_transcription_to_bitrix,
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.activity_get",
         lambda api, activity_id: {
             "ID": activity_id,
             "START_TIME": "2026-05-01T10:00:00+03:00",
             "END_TIME": "2026-05-01T10:03:00+03:00",
         },
     )
-    monkeypatch.setattr("pipelines.processing._save_state_cache", lambda state: None)
+    monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
     ctx = ProcessingContext(
         api=object(),
@@ -178,8 +181,8 @@ def test_process_call_returns_error_row_when_download_fails(monkeypatch, tmp_pat
     def fake_download_audio_for_call(**kwargs):
         raise RuntimeError("download failed")
 
-    monkeypatch.setattr("pipelines.processing.download_audio_for_call", fake_download_audio_for_call)
-    monkeypatch.setattr("pipelines.processing._save_state_cache", lambda state: None)
+    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call)
+    monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
     ctx = ProcessingContext(
         api=object(),
@@ -215,9 +218,9 @@ def test_process_call_returns_error_row_when_download_fails(monkeypatch, tmp_pat
 def test_process_deal_returns_no_call_result(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
     args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)
-    monkeypatch.setattr("pipelines.processing.list_deal_call_activities", lambda api, deal_id: [])
+    monkeypatch.setattr("pipelines.processing.deals.list_deal_call_activities", lambda api, deal_id: [])
     monkeypatch.setattr(
-        "pipelines.processing.deal_get",
+        "pipelines.processing.deals.deal_get",
         lambda api, deal_id: {
             "ID": deal_id,
             "STAGE_ID": "NEW",
@@ -225,7 +228,7 @@ def test_process_deal_returns_no_call_result(monkeypatch, tmp_path):
             "ASSIGNED_BY_ID": "5",
         },
     )
-    monkeypatch.setattr("pipelines.processing.fetch_timeline_comments", lambda api, deal_id: [])
+    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", lambda api, deal_id: [])
 
     ctx = ProcessingContext(
         api=object(),
@@ -263,14 +266,14 @@ def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, tmp_pa
     args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)
     processed_activity_ids = []
     monkeypatch.setattr(
-        "pipelines.processing.list_deal_call_activities",
+        "pipelines.processing.deals.list_deal_call_activities",
         lambda api, deal_id: [
             {"ID": "401", "ORIGIN_ID": "CALL-401", "SUBJECT": "failed call"},
             {"ID": "402", "ORIGIN_ID": "CALL-402", "SUBJECT": "ok call"},
         ],
     )
     monkeypatch.setattr(
-        "pipelines.processing.deal_get",
+        "pipelines.processing.deals.deal_get",
         lambda api, deal_id: {
             "ID": deal_id,
             "STAGE_ID": "NEW",
@@ -279,14 +282,14 @@ def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, tmp_pa
             "DATE_CREATE": "2026-05-01T09:00:00+03:00",
         },
     )
-    monkeypatch.setattr("pipelines.processing.fetch_timeline_comments", lambda api, deal_id: [])
+    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", lambda api, deal_id: [])
 
     def fake_process_call(**kwargs):
         activity_id = kwargs["activity"]["ID"]
         processed_activity_ids.append(activity_id)
         return {"deal_id": kwargs["deal_id"], "activity_id": activity_id, "manager_id": 5}, True
 
-    monkeypatch.setattr("pipelines.processing.process_call", fake_process_call)
+    monkeypatch.setattr("pipelines.processing.deals.process_call", fake_process_call)
 
     ctx = ProcessingContext(
         api=object(),
@@ -327,7 +330,7 @@ def test_process_deals_aggregates_rows_and_counters(monkeypatch, tmp_path):
             return SimpleNamespace(rows=[{"deal_id": "10"}], ok=1, err=0)
         return SimpleNamespace(rows=[{"deal_id": "20"}], ok=0, err=2)
 
-    monkeypatch.setattr("pipelines.processing.process_deal", fake_process_deal)
+    monkeypatch.setattr("pipelines.processing.deals.process_deal", fake_process_deal)
     ctx = ProcessingContext(
         api=object(),
         asr=object(),

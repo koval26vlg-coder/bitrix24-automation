@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from pipelines.kpi import load_kpi_config
-from pipelines.processing import ProcessingContext, process_call, process_no_calls_deal
+from pipelines.processing import ProcessingContext, process_call, process_deal, process_no_calls_deal
 
 
 def test_process_no_calls_deal_builds_scored_error_row():
@@ -210,3 +210,107 @@ def test_process_call_returns_error_row_when_download_fails(monkeypatch, tmp_pat
     assert row["activity_id"] == "300"
     assert row["error"] == "download failed"
     assert row["attach_result"] is None
+
+
+def test_process_deal_returns_no_call_result(monkeypatch, tmp_path):
+    kpi = load_kpi_config(None)
+    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)
+    monkeypatch.setattr("pipelines.processing.list_deal_call_activities", lambda api, deal_id: [])
+    monkeypatch.setattr(
+        "pipelines.processing.deal_get",
+        lambda api, deal_id: {
+            "ID": deal_id,
+            "STAGE_ID": "NEW",
+            "TITLE": "КП касса",
+            "ASSIGNED_BY_ID": "5",
+        },
+    )
+    monkeypatch.setattr("pipelines.processing.fetch_timeline_comments", lambda api, deal_id: [])
+
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=tmp_path,
+        ui_audio_dir=tmp_path,
+        state_cache={},
+    )
+
+    result = process_deal(
+        ctx=ctx,
+        deal_id="40",
+        deal_index=1,
+        total_deals=1,
+        retry_scope=None,
+        user_cache={},
+        department_cache={},
+        base_ok=2,
+        base_err=3,
+    )
+
+    assert result.ok == 0
+    assert result.err == 1
+    assert len(result.rows) == 1
+    assert result.rows[0]["no_calls"] is True
+    assert result.rows[0]["deal_id"] == "40"
+
+
+def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, tmp_path):
+    kpi = load_kpi_config(None)
+    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)
+    processed_activity_ids = []
+    monkeypatch.setattr(
+        "pipelines.processing.list_deal_call_activities",
+        lambda api, deal_id: [
+            {"ID": "401", "ORIGIN_ID": "CALL-401", "SUBJECT": "failed call"},
+            {"ID": "402", "ORIGIN_ID": "CALL-402", "SUBJECT": "ok call"},
+        ],
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.deal_get",
+        lambda api, deal_id: {
+            "ID": deal_id,
+            "STAGE_ID": "NEW",
+            "TITLE": "КП касса",
+            "ASSIGNED_BY_ID": "5",
+            "DATE_CREATE": "2026-05-01T09:00:00+03:00",
+        },
+    )
+    monkeypatch.setattr("pipelines.processing.fetch_timeline_comments", lambda api, deal_id: [])
+
+    def fake_process_call(**kwargs):
+        activity_id = kwargs["activity"]["ID"]
+        processed_activity_ids.append(activity_id)
+        return {"deal_id": kwargs["deal_id"], "activity_id": activity_id, "manager_id": 5}, True
+
+    monkeypatch.setattr("pipelines.processing.process_call", fake_process_call)
+
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=tmp_path,
+        ui_audio_dir=tmp_path,
+        state_cache={},
+    )
+
+    result = process_deal(
+        ctx=ctx,
+        deal_id="40",
+        deal_index=1,
+        total_deals=1,
+        retry_scope={"activity_ids_by_deal": {"40": {401}}, "full_deals": set()},
+        user_cache={},
+        department_cache={},
+    )
+
+    assert result.ok == 1
+    assert result.err == 0
+    assert processed_activity_ids == ["401"]
+    assert [row["activity_id"] for row in result.rows] == ["401"]

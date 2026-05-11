@@ -1,7 +1,7 @@
 from types import SimpleNamespace
 
 from pipelines.kpi import load_kpi_config
-from pipelines.processing import ProcessingContext, process_call, process_deal, process_no_calls_deal
+from pipelines.processing import ProcessingContext, process_call, process_deal, process_deals, process_no_calls_deal
 
 
 def test_process_no_calls_deal_builds_scored_error_row():
@@ -314,3 +314,35 @@ def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, tmp_pa
     assert result.err == 0
     assert processed_activity_ids == ["401"]
     assert [row["activity_id"] for row in result.rows] == ["401"]
+
+
+def test_process_deals_aggregates_rows_and_counters(monkeypatch, tmp_path):
+    kpi = load_kpi_config(None)
+    calls = []
+
+    def fake_process_deal(**kwargs):
+        deal_id = kwargs["deal_id"]
+        calls.append((deal_id, kwargs["base_ok"], kwargs["base_err"]))
+        if deal_id == "10":
+            return SimpleNamespace(rows=[{"deal_id": "10"}], ok=1, err=0)
+        return SimpleNamespace(rows=[{"deal_id": "20"}], ok=0, err=2)
+
+    monkeypatch.setattr("pipelines.processing.process_deal", fake_process_deal)
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=SimpleNamespace(),
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=tmp_path,
+        ui_audio_dir=tmp_path,
+        state_cache={},
+    )
+
+    result = process_deals(ctx=ctx, deal_ids=["10", "20"], retry_scope=None)
+
+    assert result.rows == [{"deal_id": "10"}, {"deal_id": "20"}]
+    assert result.ok == 1
+    assert result.err == 2
+    assert calls == [("10", 0, 0), ("20", 1, 0)]

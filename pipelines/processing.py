@@ -50,6 +50,13 @@ class DealProcessingResult:
     err: int
 
 
+@dataclass
+class ProcessingRunResult:
+    rows: List[Dict[str, Any]]
+    ok: int
+    err: int
+
+
 def process_no_calls_deal(
     *,
     args: Any,
@@ -418,3 +425,34 @@ def process_deal(
         print(f"[{activity_index}/{len(acts)}] OK={base_ok + ok} ERR={base_err + err}", flush=True)
 
     return DealProcessingResult(rows=rows, ok=ok, err=err)
+
+
+def process_deals(
+    *,
+    ctx: ProcessingContext,
+    deal_ids: List[str],
+    retry_scope: Optional[Dict[str, Any]],
+) -> ProcessingRunResult:
+    rows: List[Dict[str, Any]] = []
+    ok = 0
+    err = 0
+    user_cache: Dict[int, Dict[str, Any]] = {}
+    department_cache: Dict[int, Dict[str, Any]] = {}
+
+    for deal_index, deal_id in enumerate(deal_ids, 1):
+        deal_result = process_deal(
+            ctx=ctx,
+            deal_id=deal_id,
+            deal_index=deal_index,
+            total_deals=len(deal_ids),
+            retry_scope=retry_scope,
+            user_cache=user_cache,
+            department_cache=department_cache,
+            base_ok=ok,
+            base_err=err,
+        )
+        rows.extend(deal_result.rows)
+        ok += deal_result.ok
+        err += deal_result.err
+
+    return ProcessingRunResult(rows=rows, ok=ok, err=err)

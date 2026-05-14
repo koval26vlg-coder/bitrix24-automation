@@ -36,3 +36,11 @@ reports/call_records/
 reports/chrome_profile/
 reports/chrome_profile_tmp_*/
 reports/selenium_download_*/
+
+# Hygiene: report artifacts
+reports/debug_download_*.html
+reports/debug_download_link_*.html
+reports/streamlit_bitnewton.*.log
+reports/call.mp3
+reports/logs/*.log
+reports/logs/*.log.*

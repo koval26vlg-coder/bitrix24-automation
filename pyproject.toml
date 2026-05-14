@@ -1,35 +1,37 @@
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = ["test_*.py"]
-addopts = "-q"
+﻿[project]
+name = "bitrix24-automation"
+version = "0.1.0"
+requires-python = ">=3.10"
 
 [tool.ruff]
-target-version = "py313"
-line-length = 120
+line-length = 100
+target-version = "py310"
 exclude = [
-    ".git",
-    ".venv",
-    "venv",
-    "__pycache__",
-    "reports",
-    "system--diarize",
-    "docs/_archive",
+  "reports",
+  "venv",
+  ".venv",
+  "__pycache__",
+  "system--diarize",
+  "asr",
+  "ui",
+  "docs",
 ]
 
 [tool.ruff.lint]
-# Start with correctness checks only. Expand after the monolith is split.
-select = ["E9", "F63", "F7", "F82"]
+select = ["E", "F", "W", "I", "UP", "B"]
 
 [tool.black]
-target-version = ["py313"]
-line-length = 120
-exclude = '''
+line-length = 100
+target-version = ["py310"]
+extend-exclude = '''
 /(
-  \.git
-  | \.venv
+    reports
   | venv
-  | reports
+  | \.venv
+  | __pycache__
   | system--diarize
-  | docs/_archive
+  | asr
+  | ui
+  | docs
 )/
 '''

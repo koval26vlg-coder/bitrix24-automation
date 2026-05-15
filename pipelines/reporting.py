@@ -11,6 +11,10 @@ from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.scoring import _clean_text_for_report, evaluate_crm_checklist, quality_label
 from pipelines.stages import safe_int, stage_display_name, stage_order_map
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def publish_latest_report(json_path: Path, xlsx_path: Path) -> None:
     try:
@@ -20,7 +24,7 @@ def publish_latest_report(json_path: Path, xlsx_path: Path) -> None:
         if xlsx_path.exists():
             shutil.copy2(xlsx_path, LATEST_XLSX_REPORT)
     except Exception as e:
-        print(f"[WARN] Не удалось обновить latest-отчет: {e}", flush=True)
+        logger.warning(f"[WARN] Не удалось обновить latest-отчет: {e}")
 
 
 RU_COLUMNS: Dict[str, str] = {
@@ -73,6 +77,9 @@ RU_COLUMNS: Dict[str, str] = {
     "local_audio_source_used": "Использован локальный источник аудио",
     "local_audio_source_path": "Локальный источник аудио",
     "bitnewton_task_id": "ID задачи Bit.Newton",
+    "asr_status": "Статус Bit.Newton ASR",
+    "asr_skipped": "ASR пропущена",
+    "asr_skipped_calls": "Звонков без новой ASR",
     "attach_result": "Результат прикрепления в Bitrix",
     "error": "Ошибка",
     "calls_count": "Кол-во звонков по сделке",
@@ -214,6 +221,7 @@ RU_COLUMNS: Dict[str, str] = {
     "deals_total": "Всего сделок",
     "calls_failed": "Ошибок по звонкам",
     "ignored_call_center_calls": "Исключено звонков Call-центра",
+    "skipped_short_calls": "Исключено коротких звонков",
     "calls_breakdown": "Звонки внутри сделки",
     "transcripts_combined": "Все расшифровки по сделке",
     "bitrix_card_transcript": "Расшифровка из карточки Bitrix",
@@ -226,6 +234,28 @@ RU_COLUMNS: Dict[str, str] = {
     "call_summary": "Кратко по звонку",
     "call_has_error": "Ошибка по звонку",
     "deal_row_type": "Тип строки",
+    "lost_deal_url": "Ссылка на проигранную сделку",
+    "lost_deal_title": "Название проигранной сделки",
+    "lost_stage_name": "Стадия проигрыша",
+    "lost_manager_name": "Менеджер",
+    "lost_amount": "Сумма потери",
+    "lost_date_create": "Дата создания",
+    "lost_close_date": "Дата проигрыша",
+    "lost_lifetime_days": "Срок жизни сделки, дн.",
+    "lost_source": "Источник",
+    "lost_analysis_basis": "Основа анализа отказа",
+    "loss_reason_category": "Типичная причина отказа",
+    "loss_reason_confidence": "Уверенность причины",
+    "loss_reason_evidence": "Фрагмент/основание причины",
+    "lost_deals_count": "Кол-во проигранных сделок",
+    "lost_deals_share": "Доля проигрышей, %",
+    "lost_avg_lifetime_days": "Средний срок жизни, дн.",
+    "lost_top_managers": "Менеджеры с частыми потерями",
+    "conversion_tools": "Инструменты для роста конверсии",
+    "conversion_next_action": "Что внедрить дальше",
+    "conversion_priority": "Приоритет внедрения",
+    "conversion_rank": "Порядок внедрения",
+    "conversion_expected_effect": "Ожидаемый эффект",
 }
 
 
@@ -376,13 +406,15 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         first = deal_rows[0]
         no_call_rows = [r for r in deal_rows if r.get("no_calls")]
         call_rows = [r for r in deal_rows if not r.get("no_calls")]
-        ok_calls = [r for r in call_rows if not r.get("error")]
+        ok_calls = [r for r in call_rows if not r.get("error") and not r.get("asr_skipped")]
         failed_calls = [r for r in call_rows if r.get("error")]
+        asr_skipped_calls = len([r for r in call_rows if r.get("asr_skipped")])
         scored = ok_calls
 
         calls_total = len(call_rows)
         calls_ok = len(ok_calls)
         calls_failed = len(failed_calls)
+        skipped_short_calls = max(int(r.get("skipped_short_calls") or 0) for r in deal_rows) if deal_rows else 0
         deal_quality = max(float(r.get("deal_quality_score") or 0.0) for r in deal_rows) if deal_rows else 0.0
         if scored:
             avg_overall = round(sum(float(r.get("overall_score") or 0.0) for r in scored) / len(scored), 2)
@@ -420,6 +452,8 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             issues.append("по сделке не найдено звонков")
         if calls_failed:
             issues.append(f"не обработано звонков: {calls_failed}")
+        if asr_skipped_calls:
+            issues.append(f"без новой расшифровки Bit.Newton: {asr_skipped_calls}")
         if deal_quality < 100:
             issues.append("не полностью заполнена сделка")
         if scored and needs_ratio < 0.5:
@@ -483,7 +517,9 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "calls_total": calls_total,
                 "calls_ok": calls_ok,
                 "calls_failed": calls_failed,
+                "asr_skipped_calls": asr_skipped_calls,
                 "ignored_call_center_calls": int(first.get("ignored_call_center_calls") or 0),
+                "skipped_short_calls": skipped_short_calls,
                 "no_calls": bool(no_call_rows or calls_total == 0),
                 "transcripts_count": len([r for r in ok_calls if r.get("transcript_path")]),
                 "avg_overall_score": avg_overall,
@@ -1131,11 +1167,15 @@ def build_executive_summary_rows(
     calls_total = sum(int(row.get("calls_total") or 0) for row in deal_report_rows)
     calls_ok = sum(int(row.get("calls_ok") or 0) for row in deal_report_rows)
     calls_failed = sum(int(row.get("calls_failed") or 0) for row in deal_report_rows)
+    asr_skipped_calls = sum(int(row.get("asr_skipped_calls") or 0) for row in deal_report_rows)
+    skipped_short_calls = sum(int(row.get("skipped_short_calls") or 0) for row in deal_report_rows)
     deals_without_calls = sum(1 for row in deal_report_rows if row.get("no_calls"))
     add("Общее", "Сделок в отчете", deals_total)
     add("Общее", "Звонков в сделках", calls_total)
     add("Общее", "Успешно обработано звонков", calls_ok)
     add("Общее", "Ошибок обработки звонков", calls_failed, "Используйте режим «Повторить только ошибки».")
+    add("Общее", "Звонков без новой ASR", asr_skipped_calls, "Bit.Newton недоступен или токен не принят; кэш расшифровок используется, где он есть.")
+    add("Общее", "Исключено коротких звонков", skipped_short_calls, "Технические дозвоны короче минимальной длительности не отправляются в Bit.Newton.")
     add("Общее", "Сделок без звонков менеджера", deals_without_calls, "Call-центр исключен из оценки менеджера.")
     add("Оценки", "Средняя итоговая оценка", _avg_numeric(deal_report_rows, "avg_overall_score"))
     add("Оценки", "Средняя оценка разговора", _avg_numeric(deal_report_rows, "avg_call_quality_score"))
@@ -1623,6 +1663,7 @@ def flatten_results(
     manager_summary: List[Dict[str, Any]],
     manager_summary_cmp: Optional[List[Dict[str, Any]]] = None,
     stage_map: Optional[Dict[str, str]] = None,
+    lost_deals_analysis: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> Path:
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1652,6 +1693,9 @@ def flatten_results(
     stage_history_rows = build_stage_history_rows(report_rows)
     stage_sr_rows = build_stage_sr_rows(report_rows, stage_map=stage_map)
     stage_movement_rows = build_stage_movement_rows(report_rows)
+    lost_deal_rows = (lost_deals_analysis or {}).get("rows") or []
+    lost_reason_summary_rows = (lost_deals_analysis or {}).get("summary_rows") or []
+    conversion_action_rows = (lost_deals_analysis or {}).get("action_rows") or []
     deal_cols = [
         "deal_url",
         "stage_name",
@@ -1661,7 +1705,9 @@ def flatten_results(
         "calls_total",
         "calls_ok",
         "calls_failed",
+        "asr_skipped_calls",
         "ignored_call_center_calls",
+        "skipped_short_calls",
         "no_calls",
         "transcripts_count",
         "avg_overall_score",
@@ -1715,6 +1761,8 @@ def flatten_results(
         "subject",
         "duration_minutes",
         "call_has_error",
+        "asr_status",
+        "skipped_short_calls",
         "call_quality_score",
         "call_quality_details",
         "call_checklist_total_score",
@@ -1917,6 +1965,43 @@ def flatten_results(
         "stage_movement_risk",
         "stage_movement_recommendation",
     ]
+    lost_deal_cols = [
+        "lost_deal_url",
+        "lost_deal_title",
+        "lost_stage_name",
+        "lost_manager_name",
+        "lost_amount",
+        "lost_date_create",
+        "lost_close_date",
+        "lost_lifetime_days",
+        "lost_source",
+        "loss_reason_category",
+        "loss_reason_confidence",
+        "loss_reason_evidence",
+        "conversion_tools",
+        "conversion_next_action",
+        "lost_analysis_basis",
+    ]
+    lost_reason_summary_cols = [
+        "loss_reason_category",
+        "lost_deals_count",
+        "lost_deals_share",
+        "lost_amount",
+        "lost_avg_lifetime_days",
+        "lost_top_managers",
+        "conversion_tools",
+        "conversion_next_action",
+    ]
+    conversion_action_cols = [
+        "conversion_priority",
+        "conversion_rank",
+        "loss_reason_category",
+        "lost_deals_count",
+        "lost_deals_share",
+        "conversion_tools",
+        "conversion_next_action",
+        "conversion_expected_effect",
+    ]
     manager_cols = [
         "manager_name",
         "deals_total",
@@ -1964,6 +2049,13 @@ def flatten_results(
             _ru_df(stage_sr_df).to_excel(writer, sheet_name="SR по стадиям", index=False)
             stage_movement_df = pd.DataFrame(stage_movement_rows, columns=stage_movement_cols)
             _ru_df(stage_movement_df).to_excel(writer, sheet_name="Риски движения", index=False)
+        if lost_deal_rows or lost_reason_summary_rows or conversion_action_rows:
+            lost_df = pd.DataFrame(lost_deal_rows, columns=lost_deal_cols)
+            _ru_df(lost_df).to_excel(writer, sheet_name="Проигранные сделки", index=False)
+            lost_summary_df = pd.DataFrame(lost_reason_summary_rows, columns=lost_reason_summary_cols)
+            _ru_df(lost_summary_df).to_excel(writer, sheet_name="Причины отказов", index=False)
+            conversion_df = pd.DataFrame(conversion_action_rows, columns=conversion_action_cols)
+            _ru_df(conversion_df).to_excel(writer, sheet_name="Рост конверсии", index=False)
         manager_df = pd.DataFrame(manager_summary)
         _ru_df(manager_df[[c for c in manager_cols if c in manager_df.columns]]).to_excel(writer, sheet_name="Сводка менеджеров", index=False)
         if manager_summary_cmp is not None:

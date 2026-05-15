@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from types import SimpleNamespace
 from typing import Any, Dict, List, Optional, Tuple
 
-from asr.bitnewton import env_bitnewton_asr
+from asr.bitnewton import BitNewtonAuthError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
 from pipelines.audio import build_audio_source_index, parse_audio_source_dirs
 from pipelines.cleanup import cleanup_old_outputs
@@ -13,6 +14,15 @@ from pipelines.kpi import load_kpi_config
 from pipelines.paths import REPORTS_DIR
 from pipelines.processing import ProcessingContext
 from pipelines.retry import load_retry_scope
+from pipelines.token_status import (
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+    format_bitnewton_token_status,
+    record_bitnewton_token_validation,
+    update_bitnewton_token_status,
+)
 from pipelines.transcription import _load_state_cache, _save_state_cache
 
 
@@ -41,7 +51,24 @@ def create_bitnewton_asr(args: Any) -> Any:
         raise SystemExit("Нужен флаг --use-bitnewton (или --bitnewton-flow)")
     asr = env_bitnewton_asr()
     if not asr:
-        raise SystemExit("Не задан BITNEWTON_TOKEN в .env")
+        reason = "Не задан BITNEWTON_TOKEN в .env. Новая расшифровка Bit.Newton будет пропущена."
+        logger.warning(f"[WARN] {reason}")
+        return SimpleNamespace(auth_error=reason)
+    update_bitnewton_token_status(getattr(asr, "token", ""))
+    try:
+        asr.validate_token()
+    except BitNewtonAuthError as e:
+        reason = str(e)
+        token_status = record_bitnewton_token_validation(ok=False, error=reason)
+        logger.info(f"[TOKEN] {format_bitnewton_token_status(token_status)}")
+        logger.warning(f"[WARN] {reason}")
+        logger.warning("[WARN] Продолжаю отчет без новых запросов в Bit.Newton: использую кэш и CRM-аналитику.")
+        setattr(asr, "auth_error", reason)
+    except Exception as e:
+        logger.warning(f"[WARN] Не удалось предварительно проверить токен Bit.Newton: {e}")
+    else:
+        token_status = record_bitnewton_token_validation(ok=True)
+        logger.info(f"[TOKEN] {format_bitnewton_token_status(token_status)}")
     return asr
 
 
@@ -51,7 +78,7 @@ def resolve_deal_scope(args: Any, api: Bitrix24API) -> tuple[Optional[Dict[str, 
         deal_ids = list(retry_scope.get("deal_ids") or [])
         if not deal_ids:
             raise SystemExit("В выбранном отчете нет строк с ошибками для повторного запуска")
-        print(
+        logger.info(
             f"[RETRY] Повторяю только ошибки из отчета: "
             f"строк с ошибками={retry_scope.get('errors', 0)}, сделок={len(deal_ids)}",
             flush=True,
@@ -70,7 +97,7 @@ def prepare_audio_runtime(args: Any) -> AudioRuntime:
     audio_source_dirs = parse_audio_source_dirs(getattr(args, "audio_source_dir", []))
     audio_source_index = build_audio_source_index(audio_source_dirs)
     if audio_source_dirs:
-        print(
+        logger.info(
             f"[AUDIO] Локальных аудиофайлов в индексе: {len(audio_source_index)}; "
             f"папки: {', '.join(str(path) for path in audio_source_dirs)}",
             flush=True,
@@ -80,7 +107,7 @@ def prepare_audio_runtime(args: Any) -> AudioRuntime:
     if cleanup_days > 0:
         removed = cleanup_old_outputs(REPORTS_DIR, keep_days=cleanup_days, extra_audio_dirs=[ui_audio_dir])
         if removed.get("total"):
-            print(
+            logger.info(
                 f"[OK] Автоочистка старше {cleanup_days} дней: "
                 f"отчеты={removed.get('reports', 0)}, "
                 f"аудио={removed.get('audio', 0)}, "
@@ -123,6 +150,7 @@ def build_processing_context(
         audio_dir=audio_runtime.audio_dir,
         ui_audio_dir=audio_runtime.ui_audio_dir,
         state_cache=state_cache,
+        asr_disabled_reason=getattr(asr, "auth_error", None),
     )
 
 

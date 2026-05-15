@@ -11,6 +11,10 @@ from bitrix.recordings import resolve_call_recording
 from download_resolver import download_best_effort
 from pipelines.stages import safe_int
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".aac", ".opus", ".flac", ".wma"}
 
@@ -57,7 +61,7 @@ def build_audio_source_index(source_dirs: List[Path]) -> List[Path]:
         try:
             base = Path(source_dir)
             if not base.exists() or not base.is_dir():
-                print(f"[WARN] Локальная папка аудио не найдена: {base}", flush=True)
+                logger.warning(f"[WARN] Локальная папка аудио не найдена: {base}")
                 continue
             for path in base.rglob("*"):
                 if not path.is_file() or path.suffix.lower() not in AUDIO_EXTENSIONS:
@@ -68,7 +72,7 @@ def build_audio_source_index(source_dirs: List[Path]) -> List[Path]:
                 seen.add(key)
                 files.append(path)
         except Exception as e:
-            print(f"[WARN] Не удалось просканировать папку аудио {source_dir}: {e}", flush=True)
+            logger.warning(f"[WARN] Не удалось просканировать папку аудио {source_dir}: {e}")
     return sorted(files, key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
 
 
@@ -155,7 +159,7 @@ def download_audio_for_call(
         shutil.copy2(local_source, out_path)
         row["local_audio_source_used"] = True
         row["local_audio_source_path"] = str(local_source)
-        print(f"[AUDIO] Использую локальный файл: activity_id={row.get('activity_id')} file={local_source}", flush=True)
+        logger.info(f"[AUDIO] Использую локальный файл: activity_id={row.get('activity_id')} file={local_source}")
     else:
         row["local_audio_source_used"] = False
         if not candidates:
@@ -184,7 +188,7 @@ def download_audio_for_call(
 
                     if mode in {"direct", "auto"}:
                         for candidate in [html.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]:
-                            print(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}", flush=True)
+                            logger.info(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}")
                             ui_res = ui_browser_session.download_url(
                                 candidate,
                                 timeout_sec=ui_timeout_sec,
@@ -195,7 +199,7 @@ def download_audio_for_call(
                             ui_errors.append(f"url={candidate}: {ui_res.error if ui_res else 'no result'}")
 
                     if (ui_res is None or not ui_res.ok) and mode in {"timeline", "auto"}:
-                        print(f"[UI] Пробую таймлайн сделки через {browser}, таймаут {ui_timeout_sec} сек.: activity_id={row.get('activity_id')}", flush=True)
+                        logger.info(f"[UI] Пробую таймлайн сделки через {browser}, таймаут {ui_timeout_sec} сек.: activity_id={row.get('activity_id')}")
                         ui_res = ui_browser_session.download_call_from_deal_timeline(
                             row["deal_url"],
                             int(row.get("activity_id") or 0),

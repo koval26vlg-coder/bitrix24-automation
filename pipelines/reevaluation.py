@@ -10,6 +10,10 @@ from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.reporting import build_manager_summary, flatten_results, prepare_report_rows, publish_latest_report
 from pipelines.retry import load_report_json
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def reevaluate_report(args: Any, kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]]) -> Tuple[int, Path, Path]:
     rows = load_report_json(args.reevaluate_from)
@@ -23,10 +27,10 @@ def reevaluate_report(args: Any, kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str
     json_out.write_text(json.dumps(prepare_report_rows(recalculated), ensure_ascii=False, indent=2), encoding="utf-8")
     xlsx_out = flatten_results(recalculated, manager_summary, manager_summary_cmp=manager_summary_cmp)
     publish_latest_report(json_out, xlsx_out)
-    print(f"[OK] Переоценено строк без повторной расшифровки: {len(recalculated)}")
-    print(f"\nОтчет JSON: {json_out}")
-    print(f"Отчет Excel: {xlsx_out}")
-    print(f"Последний JSON: {LATEST_JSON_REPORT}")
-    print(f"Последний Excel: {LATEST_XLSX_REPORT}")
-    print(f"ИТОГО: OK={len(recalculated)} ERR=0")
+    logger.info(f"[OK] Переоценено строк без повторной расшифровки: {len(recalculated)}")
+    logger.info(f"\nОтчет JSON: {json_out}")
+    logger.info(f"Отчет Excel: {xlsx_out}")
+    logger.info(f"Последний JSON: {LATEST_JSON_REPORT}")
+    logger.info(f"Последний Excel: {LATEST_XLSX_REPORT}")
+    logger.info(f"ИТОГО: OK={len(recalculated)} ERR=0")
     return len(recalculated), json_out, xlsx_out

@@ -11,10 +11,15 @@ from pipelines.calls import user_name_map
 from pipelines.cleanup import cleanup_old_chrome_tmp_profiles
 from pipelines.deals import deal_id_from_report_row
 from pipelines.evaluation import refresh_crm_scores_after_stage_metrics
+from pipelines.lost_deals import build_lost_deals_analysis
 from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.reporting import build_manager_summary, flatten_results, prepare_report_rows, publish_latest_report
 from pipelines.retry import merge_retry_results
 from pipelines.stage_history import (
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
     attach_stage_history_metrics,
     fetch_stage_history_by_deals,
     fetch_stage_name_map,
@@ -51,12 +56,12 @@ def load_stage_context(
             {str(deal_id_from_report_row(row) or "") for row in results if deal_id_from_report_row(row)}
         )
         if unique_deal_ids:
-            print("[STAGE] Загружаю историю перемещений сделок по стадиям", flush=True)
+            logger.info("[STAGE] Загружаю историю перемещений сделок по стадиям")
             stage_history_by_deal = fetch_stage_history_by_deals(api, unique_deal_ids)
             for items in stage_history_by_deal.values():
                 stage_ids_for_map.extend(str(item.get("STAGE_ID") or "") for item in items if isinstance(item, dict))
     except Exception as e:
-        print(f"[WARN] Не удалось загрузить историю стадий: {e}", flush=True)
+        logger.warning(f"[WARN] Не удалось загрузить историю стадий: {e}")
 
     stage_map = fetch_stage_name_map(api, stage_ids_for_map)
     return stage_map, stage_history_by_deal
@@ -84,7 +89,7 @@ def apply_retry_merge(
 
     source_rows = list(retry_scope.get("source_rows") or [])
     final_results = merge_retry_results(source_rows, results, retry_scope)
-    print(
+    logger.info(
         f"[RETRY] Пересобираю полный отчет: исходных строк={len(source_rows)}, "
         f"повторно обработано={len(results)}, итоговых строк={len(final_results)}",
         flush=True,
@@ -96,6 +101,7 @@ def write_sync_report(
     final_results: List[Dict[str, Any]],
     stage_map: Dict[str, str],
     kpi_cmp: Optional[Dict[str, Any]],
+    lost_deals_analysis: Optional[Dict[str, List[Dict[str, Any]]]] = None,
 ) -> tuple[Path, Path]:
     manager_summary = build_manager_summary(final_results)
     manager_summary_cmp = (
@@ -112,6 +118,7 @@ def write_sync_report(
         manager_summary,
         manager_summary_cmp=manager_summary_cmp,
         stage_map=stage_map,
+        lost_deals_analysis=lost_deals_analysis,
     )
     publish_latest_report(json_out, xlsx_out)
     return json_out, xlsx_out
@@ -127,9 +134,9 @@ def print_kpi_comparison(final_results: List[Dict[str, Any]], kpi_cmp: Optional[
     )[:5]
     if not ranked:
         return
-    print("\nТоп-5 кейсов с максимальной разницей KPI:")
+    logger.info("\nТоп-5 кейсов с максимальной разницей KPI:")
     for index, row in enumerate(ranked, 1):
-        print(
+        logger.info(
             f"{index}. deal={row.get('deal_id')} act={row.get('activity_id')} "
             f"manager={row.get('manager_name') or row.get('manager_id')} "
             f"base={row.get('overall_score')} cmp={row.get('overall_score_cmp')} "
@@ -142,7 +149,7 @@ def cleanup_chrome_tmp_if_needed(args: Any) -> None:
         return
     removed = cleanup_old_chrome_tmp_profiles(REPORTS_DIR, keep_days=int(args.cleanup_chrome_tmp_days))
     if removed:
-        print(f"[OK] Удалено старых chrome_profile_tmp_*: {removed}")
+        logger.info(f"[OK] Удалено старых chrome_profile_tmp_*: {removed}")
 
 
 def finalize_sync_report(
@@ -159,14 +166,20 @@ def finalize_sync_report(
     enrich_manager_names(api, results)
     stage_map = apply_stage_context(api, results, kpi, kpi_cmp)
     final_results = apply_retry_merge(results, retry_scope)
-    json_out, xlsx_out = write_sync_report(final_results, stage_map, kpi_cmp)
+    lost_deals_analysis = build_lost_deals_analysis(
+        api=api,
+        args=args,
+        results=final_results,
+        stage_map=stage_map,
+    )
+    json_out, xlsx_out = write_sync_report(final_results, stage_map, kpi_cmp, lost_deals_analysis)
 
-    print(f"\nОтчет JSON: {json_out}")
-    print(f"Отчет Excel: {xlsx_out}")
-    print(f"Последний JSON: {LATEST_JSON_REPORT}")
-    print(f"Последний Excel: {LATEST_XLSX_REPORT}")
+    logger.info(f"\nОтчет JSON: {json_out}")
+    logger.info(f"Отчет Excel: {xlsx_out}")
+    logger.info(f"Последний JSON: {LATEST_JSON_REPORT}")
+    logger.info(f"Последний Excel: {LATEST_XLSX_REPORT}")
     print_kpi_comparison(final_results, kpi_cmp)
-    print(f"ИТОГО: OK={ok} ERR={err}")
+    logger.info(f"ИТОГО: OK={ok} ERR={err}")
     cleanup_chrome_tmp_if_needed(args)
 
     return SyncReportOutput(

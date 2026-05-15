@@ -41,8 +41,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--retry-errors-from", default=None, help="JSON отчета, из которого нужно повторить только строки с ошибками")
     parser.add_argument("--reevaluate-from", default=None, help="JSON отчета, который нужно переоценить без скачивания аудио и Bit.Newton")
     parser.add_argument("--max-calls-per-deal", type=int, default=0, help="Ограничить количество звонков для анализа по каждой сделке; 0 = все")
+    parser.add_argument("--min-call-duration-sec", type=int, default=15, help="Не отправлять в ASR технические звонки короче N секунд; 0 отключает")
     parser.add_argument("--include-call-center", action="store_true", help="Не исключать звонки операторов Call-центра из анализа")
     parser.add_argument("--fetch-bitrix-card-transcript", action="store_true", help="Пробовать читать расшифровку из карточки звонка Bitrix через UI и сопоставлять с Bit.Newton")
+    parser.add_argument("--lost-deals-analysis", action="store_true", help="Добавить в Excel анализ проигранных сделок и типичных причин отказа")
+    parser.add_argument("--lost-deals-limit", type=int, default=500, help="Лимит проигранных сделок для анализа причин отказа")
     parser.add_argument("--cleanup-output-days", type=int, default=30, help="Автоудаление отчетов, расшифровок и аудио старше N дней; 0 отключает")
     parser.add_argument("--cleanup-chrome-tmp-days", type=int, default=7, help="Удалять старые reports/chrome_profile_tmp_* (дней хранения)")
     return parser

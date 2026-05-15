@@ -9,6 +9,10 @@ from typing import Any, Dict, List, Optional
 from bitrix.api import Bitrix24API
 from pipelines.stages import safe_int
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def deal_url_from_id(domain: str, deal_id: str) -> str:
     domain = (domain or "").strip().replace("https://", "").replace("http://", "").strip("/")
@@ -104,5 +108,5 @@ def resolve_deal_ids(args: Any, api: Bitrix24API) -> List[str]:
 
     flt = normalize_deal_filter_dates(json.loads(Path(args.filter_json).read_text(encoding="utf-8")))
     deals = fetch_deals_by_filter(api, flt, limit=args.limit)
-    print(f"Найдено сделок: {len(deals)}")
+    logger.info(f"Найдено сделок: {len(deals)}")
     return [str(d.get("ID")) for d in deals if d.get("ID")]

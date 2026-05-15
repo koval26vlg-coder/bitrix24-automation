@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 from pipelines.calls import (
     compute_discipline_metrics,
     fetch_timeline_comments,
+    guess_duration_sec,
     list_deal_call_activities,
     split_call_center_operator_activities,
 )
@@ -13,6 +14,58 @@ from pipelines.evaluation import compute_deal_quality
 from pipelines.processing.calls import process_call, process_no_calls_deal
 from pipelines.processing.context import DealProcessingResult, ProcessingContext, ProcessingRunResult
 from pipelines.stages import safe_int
+
+
+def _is_missing_bitrix_deal_error(error: Exception) -> bool:
+    text = str(error).lower()
+    return "crm.deal.get" in text and "not found" in text
+
+
+def _build_missing_deal_row(
+    *,
+    ctx: ProcessingContext,
+    deal_id: str,
+    error: Exception,
+    call_center_acts: List[Dict[str, Any]],
+    skipped_short_calls: int,
+) -> Dict[str, Any]:
+    row: Dict[str, Any] = {
+        "deal_id": deal_id,
+        "deal_url": deal_url_from_id(ctx.args.domain, deal_id),
+        "stage_id": None,
+        "manager_id": None,
+        "manager_name": None,
+        "kpi_profile": (ctx.kpi.get("profile") or {}).get("name"),
+        "kpi_version": (ctx.kpi.get("profile") or {}).get("version"),
+        "kpi_profile_cmp": (ctx.kpi_cmp.get("profile") or {}).get("name") if ctx.kpi_cmp else None,
+        "kpi_version_cmp": (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None,
+        "activity_id": None,
+        "origin_id": None,
+        "subject": "Сделка не найдена",
+        "start_time": None,
+        "end_time": None,
+        "duration_minutes": None,
+        "disk_file_id": None,
+        "download_url": None,
+        "audio_path": None,
+        "bitnewton_task_id": None,
+        "attach_result": None,
+        "error": f"Сделка не найдена или недоступна в Bitrix24: {error}",
+        "no_calls": True,
+        "ignored_call_center_calls": len(call_center_acts),
+        "skipped_short_calls": int(skipped_short_calls or 0),
+        "overall_score": 0.0,
+        "call_quality_score": 0.0,
+        "deal_quality_score": 0.0,
+        "crm_work_score": 0.0,
+        "call_quality_conclusion": "Оценить разговор невозможно: сделка не найдена или недоступна.",
+        "conversation_meaning": "Нет данных: карточка сделки недоступна через Bitrix24 API.",
+        "recommendations": "Проверить, удалена ли сделка, перемещена ли она в другую воронку, и есть ли доступ у webhook.",
+    }
+    if ctx.kpi_cmp is not None:
+        row["overall_score_cmp"] = 0.0
+        row["overall_score_delta"] = 0.0
+    return row
 
 
 def process_deal(
@@ -46,6 +99,23 @@ def process_deal(
             flush=True,
         )
 
+    min_call_duration_sec = max(0, int(getattr(ctx.args, "min_call_duration_sec", 15) or 0))
+    skipped_short_acts: List[Dict[str, Any]] = []
+    if min_call_duration_sec > 0:
+        long_acts: List[Dict[str, Any]] = []
+        for act in acts:
+            if guess_duration_sec(act) < min_call_duration_sec:
+                skipped_short_acts.append(act)
+            else:
+                long_acts.append(act)
+        if skipped_short_acts:
+            print(
+                f"[SKIP] Коротких звонков без полноценного разговора: {len(skipped_short_acts)} "
+                f"(меньше {min_call_duration_sec} сек.); к анализу: {len(long_acts)}",
+                flush=True,
+            )
+        acts = long_acts
+
     if retry_scope is not None:
         retry_ids = retry_scope.get("activity_ids_by_deal", {}).get(str(deal_id), set())
         full_deal_retry = str(deal_id) in retry_scope.get("full_deals", set())
@@ -69,7 +139,23 @@ def process_deal(
     rows: List[Dict[str, Any]] = []
     ok = 0
     err = 0
-    deal = deal_get(ctx.api, deal_id)
+    try:
+        deal = deal_get(ctx.api, deal_id)
+    except Exception as e:
+        if not _is_missing_bitrix_deal_error(e):
+            raise
+        row = _build_missing_deal_row(
+            ctx=ctx,
+            deal_id=deal_id,
+            error=e,
+            call_center_acts=call_center_acts,
+            skipped_short_calls=len(skipped_short_acts),
+        )
+        rows.append(row)
+        err += 1
+        print(f"[DEAL NOT FOUND] OK={base_ok + ok} ERR={base_err + err}: {e}", flush=True)
+        return DealProcessingResult(rows=rows, ok=ok, err=err)
+
     comments = fetch_timeline_comments(ctx.api, deal_id)
     discipline = compute_discipline_metrics(deal, acts, ctx.kpi)
     deal_quality = compute_deal_quality(deal, comments, ctx.kpi)
@@ -87,6 +173,7 @@ def process_deal(
             kpi=ctx.kpi,
             kpi_cmp=ctx.kpi_cmp,
             call_center_acts=call_center_acts,
+            skipped_short_calls=len(skipped_short_acts),
         )
         rows.append(row)
         err += 1
@@ -104,6 +191,7 @@ def process_deal(
             manager_id=manager_id,
             call_center_acts=call_center_acts,
             activity=activity,
+            skipped_short_calls=len(skipped_short_acts),
         )
         if success:
             ok += 1

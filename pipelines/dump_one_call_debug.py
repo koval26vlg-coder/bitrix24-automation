@@ -16,6 +16,10 @@ from asr.bitnewton import BitNewtonError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
 from bitrix.recordings import guess_recording_url
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(description="Вывести пример ответа voximplant.statistic.get (1 звонок).")
@@ -107,7 +111,7 @@ def run(args: argparse.Namespace) -> None:
     data = api.call("voximplant.statistic.get", {"FILTER": flt, "SORT": "CALL_START_DATE", "ORDER": "DESC", "LIMIT": args.limit})
     calls = data.get("result") or []
     if not calls:
-        print("Звонков не найдено. Попробуй увеличить --days.")
+        logger.info("Звонков не найдено. Попробуй увеличить --days.")
         return
 
     call0 = calls[0]
@@ -118,15 +122,15 @@ def run(args: argparse.Namespace) -> None:
     activity_file_url = None
     external_link = None
 
-    print("\n=== Пример 1 звонка из voximplant.statistic.get ===\n")
-    print(json.dumps(call0, ensure_ascii=False, indent=2) if args.pretty else json.dumps(call0, ensure_ascii=False))
+    logger.info("\n=== Пример 1 звонка из voximplant.statistic.get ===\n")
+    logger.info(json.dumps(call0, ensure_ascii=False, indent=2) if args.pretty else json.dumps(call0, ensure_ascii=False))
 
-    print("\n=== Кандидат на ссылку записи (если найден) ===\n")
+    logger.info("\n=== Кандидат на ссылку записи (если найден) ===\n")
     if url:
-        print(url)
+        logger.info(url)
     else:
-        print("Не нашёл явную ссылку на запись в этом объекте.")
-        print("\nПробую достать ссылку через Disk/Activity API (RECORD_FILE_ID / CRM_ACTIVITY_ID)...\n")
+        logger.info("Не нашёл явную ссылку на запись в этом объекте.")
+        logger.info("\nПробую достать ссылку через Disk/Activity API (RECORD_FILE_ID / CRM_ACTIVITY_ID)...\n")
 
         if record_file_id:
             try:
@@ -139,10 +143,10 @@ def run(args: argparse.Namespace) -> None:
             except Exception as e:
                 disk_link = {"error": str(e)}
 
-            print("=== disk.file.get ===")
-            print(json.dumps(disk_get, ensure_ascii=False, indent=2)[:4000])
-            print("\n=== disk.file.getExternalLink ===")
-            print(json.dumps(disk_link, ensure_ascii=False, indent=2)[:4000])
+            logger.info("=== disk.file.get ===")
+            logger.info(json.dumps(disk_get, ensure_ascii=False, indent=2)[:4000])
+            logger.info("\n=== disk.file.getExternalLink ===")
+            logger.info(json.dumps(disk_link, ensure_ascii=False, indent=2)[:4000])
 
             try:
                 if isinstance(disk_get, dict):
@@ -155,8 +159,8 @@ def run(args: argparse.Namespace) -> None:
 
             u = extract_any_url(disk_get) or extract_any_url(disk_link)
             if u:
-                print("\n>>> НАЙДЕН URL (из Disk):")
-                print(u)
+                logger.info("\n>>> НАЙДЕН URL (из Disk):")
+                logger.info(u)
                 url = url or u
 
         if activity_id:
@@ -165,13 +169,13 @@ def run(args: argparse.Namespace) -> None:
             except Exception as e:
                 act = {"error": str(e)}
 
-            print("\n=== crm.activity.get ===")
-            print(json.dumps(act, ensure_ascii=False, indent=2)[:4000])
+            logger.info("\n=== crm.activity.get ===")
+            logger.info(json.dumps(act, ensure_ascii=False, indent=2)[:4000])
 
             u2 = extract_any_url(act)
             if u2:
-                print("\n>>> НАЙДЕН URL (из Activity):")
-                print(u2)
+                logger.info("\n>>> НАЙДЕН URL (из Activity):")
+                logger.info(u2)
                 url = url or u2
             try:
                 files = (act.get("result") or {}).get("FILES") or []
@@ -180,19 +184,19 @@ def run(args: argparse.Namespace) -> None:
             except Exception:
                 activity_file_url = None
 
-        print("\nЕсли URL всё ещё не найден — просто скинь сюда вывод disk.file.get / crm.activity.get (можно замаскировать телефоны).")
+        logger.info("\nЕсли URL всё ещё не найден — просто скинь сюда вывод disk.file.get / crm.activity.get (можно замаскировать телефоны).")
 
     if not args.transcribe:
         return
 
     asr = env_bitnewton_asr()
     if not asr:
-        print("\n[ERROR] Не найден BITNEWTON_TOKEN в .env / переменных окружения.")
-        print("Добавь в .env:")
-        print("BITNEWTON_TOKEN=...токен...")
+        logger.error("\n[ERROR] Не найден BITNEWTON_TOKEN в .env / переменных окружения.")
+        logger.info("Добавь в .env:")
+        logger.info("BITNEWTON_TOKEN=...токен...")
         return
 
-    print("\n=== ТРАНСКРИБАЦИЯ через Bit.Newton ===\n")
+    logger.info("\n=== ТРАНСКРИБАЦИЯ через Bit.Newton ===\n")
     tmp_dir = Path("reports")
     tmp_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -202,12 +206,12 @@ def run(args: argparse.Namespace) -> None:
         if args.audio_file:
             audio_path = Path(args.audio_file).expanduser().resolve()
             if not audio_path.exists():
-                print(f"[ERROR] Файл не найден: {audio_path}")
+                logger.error(f"[ERROR] Файл не найден: {audio_path}")
                 return
-            print(f"[OK] Беру локальный файл: {audio_path} ({audio_path.stat().st_size} bytes)")
+            logger.info(f"[OK] Беру локальный файл: {audio_path} ({audio_path.stat().st_size} bytes)")
         else:
             if not url and not external_link and not detail_url and not activity_file_url:
-                print("\n[ERROR] Не удалось определить URL записи. Сначала добудь URL через Disk/Activity.")
+                logger.error("\n[ERROR] Не удалось определить URL записи. Сначала добудь URL через Disk/Activity.")
                 return
 
             sess = requests.Session()
@@ -224,11 +228,11 @@ def run(args: argparse.Namespace) -> None:
             last_status = None
             for cand in download_candidates:
                 headers = {"User-Agent": "Mozilla/5.0"}
-                print(f"[DL] пробую: {cand}", flush=True)
+                logger.info(f"[DL] пробую: {cand}")
                 r = sess.get(cand, timeout=120, allow_redirects=True, stream=True, headers=headers)
                 last_status = r.status_code
                 ctype = (r.headers.get("Content-Type") or "").lower()
-                print(f"[DL] http={r.status_code} content-type={ctype or '<none>'}", flush=True)
+                logger.info(f"[DL] http={r.status_code} content-type={ctype or '<none>'}")
                 if r.status_code >= 400:
                     continue
                 if "text/html" in ctype:
@@ -236,19 +240,19 @@ def run(args: argparse.Namespace) -> None:
                         debug_html = tmp_dir / f"debug_download_{ts}.html"
                         chunk = next(r.iter_content(chunk_size=20000), b"")
                         debug_html.write_bytes(chunk)
-                        print(f"[WARN] Вместо файла пришёл HTML ({cand}). Сохранил: {debug_html}")
+                        logger.warning(f"[WARN] Вместо файла пришёл HTML ({cand}). Сохранил: {debug_html}")
                         html = chunk.decode("utf-8", errors="ignore")
                         base = "https://online-kassa.bitrix24.ru"
                         direct = resolve_any_download_href(html, base_url=base)
                         if direct:
-                            print(f"[DL] нашёл прямую ссылку Скачать: {direct}", flush=True)
+                            logger.info(f"[DL] нашёл прямую ссылку Скачать: {direct}")
                             headers2 = dict(headers)
                             headers2["Referer"] = cand
                             rr = sess.get(direct, timeout=120, allow_redirects=True, stream=True, headers=headers2)
                             last_status = rr.status_code
                             rr_ctype = (rr.headers.get("Content-Type") or "").lower()
                             hist = ",".join([str(h.status_code) for h in rr.history]) if rr.history else "-"
-                            print(f"[DL] download-link http={rr.status_code} hist={hist} final={rr.url} content-type={rr_ctype or '<none>'}", flush=True)
+                            logger.info(f"[DL] download-link http={rr.status_code} hist={hist} final={rr.url} content-type={rr_ctype or '<none>'}")
                             if rr.status_code < 400:
                                 first = next(rr.iter_content(chunk_size=4096), b"")
                                 if looks_like_html_prefix(first):
@@ -267,20 +271,20 @@ def run(args: argparse.Namespace) -> None:
                                     html2 = bytes(buf).decode("utf-8", errors="ignore")
                                     dbg = tmp_dir / f"debug_download_link_{ts}.html"
                                     dbg.write_text(html2, encoding="utf-8", errors="ignore")
-                                    print(f"[WARN] download-link тоже вернул HTML. Сохранил: {dbg}", flush=True)
+                                    logger.warning(f"[WARN] download-link тоже вернул HTML. Сохранил: {dbg}")
                                     direct2 = resolve_any_download_href(html2, base_url=base)
                                     if not direct2:
                                         sep2 = "&" if "?" in direct else "?"
                                         direct2 = f"{direct}{sep2}download=1"
                                     if direct2 and direct2 != direct:
-                                        print(f"[DL] нашёл вторую ссылку Скачать: {direct2}", flush=True)
+                                        logger.info(f"[DL] нашёл вторую ссылку Скачать: {direct2}")
                                         headers3 = dict(headers)
                                         headers3["Referer"] = rr.url
                                         rrr = sess.get(direct2, timeout=120, allow_redirects=True, stream=True, headers=headers3)
                                         last_status = rrr.status_code
                                         rrr_ctype = (rrr.headers.get("Content-Type") or "").lower()
                                         hist2 = ",".join([str(h.status_code) for h in rrr.history]) if rrr.history else "-"
-                                        print(f"[DL] download-link2 http={rrr.status_code} hist={hist2} final={rrr.url} content-type={rrr_ctype or '<none>'}", flush=True)
+                                        logger.info(f"[DL] download-link2 http={rrr.status_code} hist={hist2} final={rrr.url} content-type={rrr_ctype or '<none>'}")
                                         if rrr.status_code < 400:
                                             first3 = next(rrr.iter_content(chunk_size=4096), b"")
                                             if not looks_like_html_prefix(first3):
@@ -312,12 +316,12 @@ def run(args: argparse.Namespace) -> None:
                 break
 
             if not audio_path.exists() or audio_path.stat().st_size == 0:
-                print(f"[ERROR] Не удалось скачать запись. Последний HTTP={last_status}.")
-                print("Подсказка: иногда external link надо скачивать с параметром ?download=1.")
+                logger.error(f"[ERROR] Не удалось скачать запись. Последний HTTP={last_status}.")
+                logger.info("Подсказка: иногда external link надо скачивать с параметром ?download=1.")
                 if not args.selenium_fallback:
                     return
 
-                print("\n[INFO] Пробую скачать через Chrome (selenium fallback)...", flush=True)
+                logger.info("\n[INFO] Пробую скачать через Chrome (selenium fallback)...")
                 (
                     webdriver,
                     Options,
@@ -384,7 +388,7 @@ def run(args: argparse.Namespace) -> None:
                         targets.append(str(activity_file_url))
 
                     if not targets:
-                        print("[ERROR] Нет ссылки для открытия в браузере (external_link/detail_url).")
+                        logger.error("[ERROR] Нет ссылки для открытия в браузере (external_link/detail_url).")
                         return
 
                     def try_click_download() -> None:
@@ -405,7 +409,7 @@ def run(args: argparse.Namespace) -> None:
 
                     downloaded = False
                     for target in targets:
-                        print(f"[SEL] Открываю в Chrome: {target}", flush=True)
+                        logger.info(f"[SEL] Открываю в Chrome: {target}")
                         driver.get(target)
                         try_click_download()
 
@@ -422,14 +426,14 @@ def run(args: argparse.Namespace) -> None:
                             break
 
                     if not downloaded or not audio_path.exists() or audio_path.stat().st_size == 0:
-                        print(
+                        logger.info(
                             "[ERROR] Selenium скачивание не дало файл. Возможные причины: не выполнен логин, нет прав, или сетевой блок.",
                             flush=True,
                         )
                         return
-                    print(f"[OK] Selenium скачал: {audio_path} ({audio_path.stat().st_size} bytes)")
+                    logger.info(f"[OK] Selenium скачал: {audio_path} ({audio_path.stat().st_size} bytes)")
                 except WebDriverException as e:
-                    print(f"[ERROR] Selenium: {e}")
+                    logger.error(f"[ERROR] Selenium: {e}")
                     return
                 finally:
                     try:
@@ -438,10 +442,10 @@ def run(args: argparse.Namespace) -> None:
                         pass
 
         if not args.audio_file:
-            print(f"[OK] Запись скачана: {audio_path} ({audio_path.stat().st_size} bytes)")
+            logger.info(f"[OK] Запись скачана: {audio_path} ({audio_path.stat().st_size} bytes)")
 
         task = asr.start_transcribing(str(audio_path), diarize=bool(args.diarize), remove_timestamps=True)
-        print(f"[OK] Задача создана: task_id={task.task_id}")
+        logger.info(f"[OK] Задача создана: task_id={task.task_id}")
 
         start = time.time()
         last_print = 0.0
@@ -456,7 +460,7 @@ def run(args: argparse.Namespace) -> None:
 
             now = time.time()
             if now - last_print >= 2.5:
-                print(f"[ASR] status={status} progress={progress} upload={upload} transcribe={trans} queue={qpos}", flush=True)
+                logger.info(f"[ASR] status={status} progress={progress} upload={upload} transcribe={trans} queue={qpos}")
                 last_print = now
 
             st_l = status.lower()
@@ -473,12 +477,12 @@ def run(args: argparse.Namespace) -> None:
             text = content.decode("utf-8", errors="replace").strip()
         except Exception:
             text = content.decode(errors="replace").strip()
-        print("\n=== РЕЗУЛЬТАТ (первые 4000 символов) ===\n")
-        print(text[:4000])
+        logger.info("\n=== РЕЗУЛЬТАТ (первые 4000 символов) ===\n")
+        logger.info(text[:4000])
     except BitNewtonError as e:
-        print(f"[ERROR] Bit.Newton: {e}")
+        logger.error(f"[ERROR] Bit.Newton: {e}")
     except Exception as e:
-        print(f"[ERROR] Ошибка: {e}")
+        logger.error(f"[ERROR] Ошибка: {e}")
     finally:
         try:
             if not args.audio_file:

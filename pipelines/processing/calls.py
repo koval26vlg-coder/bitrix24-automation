@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
+from asr.bitnewton import BitNewtonAuthError
 from bitrix.transcriptions import attach_transcription_to_bitrix
 from pipelines.audio import download_audio_for_call
 from pipelines.calls import activity_get, guess_duration_minutes, guess_duration_sec
@@ -31,6 +32,7 @@ def process_no_calls_deal(
     kpi: Dict[str, Any],
     kpi_cmp: Optional[Dict[str, Any]],
     call_center_acts: List[Dict[str, Any]],
+    skipped_short_calls: int = 0,
 ) -> Dict[str, Any]:
     error = (
         "По сделке не найдено звонков менеджера после исключения Call-центра"
@@ -61,6 +63,7 @@ def process_no_calls_deal(
         "error": error,
         "no_calls": True,
         "ignored_call_center_calls": len(call_center_acts),
+        "skipped_short_calls": int(skipped_short_calls or 0),
     }
     row.update(discipline)
     row.update(deal_quality)
@@ -91,6 +94,7 @@ def _build_call_row(
     kpi: Dict[str, Any],
     kpi_cmp: Optional[Dict[str, Any]],
     call_center_acts: List[Dict[str, Any]],
+    skipped_short_calls: int = 0,
 ) -> Dict[str, Any]:
     row: Dict[str, Any] = {
         "deal_id": deal_id,
@@ -115,6 +119,7 @@ def _build_call_row(
         "attach_result": None,
         "error": None,
         "ignored_call_center_calls": len(call_center_acts),
+        "skipped_short_calls": int(skipped_short_calls or 0),
     }
     row.update(discipline)
     row.update(deal_quality)
@@ -161,6 +166,36 @@ def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], t
     return bitrix_text
 
 
+def _mark_asr_skipped(
+    *,
+    ctx: ProcessingContext,
+    row: Dict[str, Any],
+    deal: Dict[str, Any],
+    comments: List[str],
+    reason: str,
+) -> Tuple[Dict[str, Any], bool]:
+    row["asr_skipped"] = True
+    row["asr_status"] = f"ASR пропущена: {reason}"
+    row["bitnewton_task_id"] = "skipped_asr"
+    row["transcript_text"] = ""
+    row["transcript_excerpt"] = ""
+    row["bitrix_card_transcript_status"] = "Не запрашивалась: ASR пропущена"
+    row["combined_transcript_text"] = ""
+    apply_scores(row, deal, comments, "", ctx.kpi, suffix="")
+    if ctx.kpi_cmp is not None:
+        apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp")
+        row["overall_score_delta"] = round(
+            float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
+            2,
+        )
+    row["call_quality_score"] = 0.0
+    row["call_quality_details"] = "Качество разговора не рассчитано: Bit.Newton недоступен, расшифровки нет."
+    row["call_quality_conclusion"] = "Разговор не оценен: новая ASR-расшифровка пропущена из-за проблемы с Bit.Newton."
+    row["conversation_meaning"] = "Нет расшифровки: можно оценить только CRM-часть и движение сделки."
+    row["recommendations"] = "Обновить BITNEWTON_TOKEN и запустить режим «Повторить только ошибки» или обычную обработку с кэшем."
+    return row, True
+
+
 def process_call(
     *,
     ctx: ProcessingContext,
@@ -172,6 +207,7 @@ def process_call(
     manager_id: Optional[int],
     call_center_acts: List[Dict[str, Any]],
     activity: Dict[str, Any],
+    skipped_short_calls: int = 0,
 ) -> Tuple[Dict[str, Any], bool]:
     row = _build_call_row(
         args=ctx.args,
@@ -184,6 +220,7 @@ def process_call(
         kpi=ctx.kpi,
         kpi_cmp=ctx.kpi_cmp,
         call_center_acts=call_center_acts,
+        skipped_short_calls=skipped_short_calls,
     )
 
     try:
@@ -223,6 +260,15 @@ def process_call(
                 _save_state_cache(ctx.state_cache)
                 print(f"[CACHE] Использую сохранённую расшифровку: activity_id={row.get('activity_id')}", flush=True)
                 return row, True
+
+        if ctx.asr_disabled_reason:
+            return _mark_asr_skipped(
+                ctx=ctx,
+                row=row,
+                deal=deal,
+                comments=comments,
+                reason=str(ctx.asr_disabled_reason),
+            )
 
         out_path, ctx.ui_browser_session = download_audio_for_call(
             api=ctx.api,
@@ -277,6 +323,9 @@ def process_call(
         }
         _save_state_cache(ctx.state_cache)
         return row, True
+    except BitNewtonAuthError as e:
+        ctx.asr_disabled_reason = str(e)
+        return _mark_asr_skipped(ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e))
     except Exception as e:
         row["error"] = str(e)
         return row, False

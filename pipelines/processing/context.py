@@ -7,6 +7,10 @@ from typing import Any, Dict, List, Optional
 from bitrix.api import Bitrix24API
 
 
+class FatalProcessingError(RuntimeError):
+    pass
+
+
 @dataclass
 class ProcessingContext:
     api: Bitrix24API
@@ -19,6 +23,7 @@ class ProcessingContext:
     ui_audio_dir: Path
     state_cache: Dict[str, Any]
     ui_browser_session: Any = None
+    asr_disabled_reason: Optional[str] = None
 
 
 @dataclass

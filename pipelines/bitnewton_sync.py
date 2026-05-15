@@ -38,9 +38,11 @@ def run_sync(args: Any) -> Tuple[int, Path, Path]:
         audio_runtime=audio_runtime,
         state_cache=state_cache,
     )
-    run_result = process_deals(ctx=processing_ctx, deal_ids=deal_ids, retry_scope=retry_scope)
-    close_processing_context(processing_ctx)
-    save_state_cache(state_cache)
+    try:
+        run_result = process_deals(ctx=processing_ctx, deal_ids=deal_ids, retry_scope=retry_scope)
+    finally:
+        close_processing_context(processing_ctx)
+        save_state_cache(state_cache)
 
     report = finalize_sync_report(
         api=api,

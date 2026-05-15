@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Скачивание и установка ffmpeg автоматически
 """
@@ -12,7 +16,7 @@ from pathlib import Path
 def download_ffmpeg():
     """Скачать ffmpeg для Windows"""
 
-    print("=== USTANOVKA FFMPEG ===\n")
+    logger.info("=== USTANOVKA FFMPEG ===\n")
 
     # URL для скачивания ffmpeg
     url = "https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip"
@@ -21,8 +25,8 @@ def download_ffmpeg():
     install_dir = Path("C:/ffmpeg")
     zip_file = "ffmpeg.zip"
 
-    print(f"Skachivanie ffmpeg...")
-    print(f"URL: {url}")
+    logger.info(f"Skachivanie ffmpeg...")
+    logger.info(f"URL: {url}")
 
     try:
         # Скачиваем
@@ -30,7 +34,7 @@ def download_ffmpeg():
         response.raise_for_status()
 
         total_size = int(response.headers.get('content-length', 0))
-        print(f"Razmer: {total_size / 1024 / 1024:.1f} MB")
+        logger.info(f"Razmer: {total_size / 1024 / 1024:.1f} MB")
 
         with open(zip_file, 'wb') as f:
             downloaded = 0
@@ -40,12 +44,12 @@ def download_ffmpeg():
                     downloaded += len(chunk)
                     if total_size > 0:
                         percent = (downloaded / total_size) * 100
-                        print(f"\rProgress: {percent:.1f}%", end='')
+                        logger.info(f"\rProgress: {percent:.1f}%", end='')
 
-        print("\n[OK] Skachano!")
+        logger.info("\n[OK] Skachano!")
 
         # Распаковываем
-        print("\nRaspakuem...")
+        logger.info("\nRaspakuem...")
         with zipfile.ZipFile(zip_file, 'r') as zip_ref:
             zip_ref.extractall(".")
 
@@ -57,14 +61,14 @@ def download_ffmpeg():
                 break
 
         if not extracted_dir:
-            print("[ERROR] Ne udalos nayti raspakovannyy ffmpeg")
+            logger.error("[ERROR] Ne udalos nayti raspakovannyy ffmpeg")
             return False
 
         # Перемещаем в C:\ffmpeg
-        print(f"\nPeremeshchaem v {install_dir}...")
+        logger.info(f"\nPeremeshchaem v {install_dir}...")
 
         if install_dir.exists():
-            print("Udalyaem staruyu versiyu...")
+            logger.info("Udalyaem staruyu versiyu...")
             shutil.rmtree(install_dir)
 
         shutil.move(extracted_dir, install_dir)
@@ -72,19 +76,19 @@ def download_ffmpeg():
         # Удаляем zip
         os.remove(zip_file)
 
-        print(f"[OK] ffmpeg ustanovlen v: {install_dir}")
-        print(f"\nTeper dobavte v PATH: {install_dir / 'bin'}")
-        print("\nKak dobavit v PATH:")
-        print("1. Win + R -> sysdm.cpl")
-        print("2. Dopolnitelno -> Peremennye sredy")
-        print("3. Path -> Izmenit -> Sozdat")
-        print(f"4. Dobavte: {install_dir / 'bin'}")
-        print("5. OK -> Perezapustite terminal")
+        logger.info(f"[OK] ffmpeg ustanovlen v: {install_dir}")
+        logger.info(f"\nTeper dobavte v PATH: {install_dir / 'bin'}")
+        logger.info("\nKak dobavit v PATH:")
+        logger.info("1. Win + R -> sysdm.cpl")
+        logger.info("2. Dopolnitelno -> Peremennye sredy")
+        logger.info("3. Path -> Izmenit -> Sozdat")
+        logger.info(f"4. Dobavte: {install_dir / 'bin'}")
+        logger.info("5. OK -> Perezapustite terminal")
 
         return True
 
     except Exception as e:
-        print(f"\n[ERROR] {str(e)}")
+        logger.error(f"\n[ERROR] {str(e)}")
         return False
 
 

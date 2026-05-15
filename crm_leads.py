@@ -3,6 +3,10 @@ from datetime import datetime, timedelta
 import pandas as pd
 import config
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class LeadsManager:
     def __init__(self):
@@ -62,7 +66,7 @@ class LeadsManager:
                 df['DATE_MODIFY'] = pd.to_datetime(df['DATE_MODIFY'], utc=True).dt.tz_localize(None)
 
         df.to_excel(filename, index=False, engine='openpyxl')
-        print(f"[OK] Otchet sohranen: {filename}")
+        logger.info(f"[OK] Otchet sohranen: {filename}")
         return filename
 
     def get_statistics(self, leads: list) -> dict:
@@ -84,18 +88,18 @@ class LeadsManager:
 
 
 def main():
-    print("=== Отчет по лидам Bitrix24 ===\n")
+    logger.info("=== Отчет по лидам Bitrix24 ===\n")
 
     manager = LeadsManager()
 
     if not manager.api.test_connection():
         return
 
-    print("\nВыберите действие:")
-    print("1. Все лиды за последние 7 дней")
-    print("2. Все лиды за последние 30 дней")
-    print("3. Только новые лиды")
-    print("4. Все лиды")
+    logger.info("\nВыберите действие:")
+    logger.info("1. Все лиды за последние 7 дней")
+    logger.info("2. Все лиды за последние 30 дней")
+    logger.info("3. Только новые лиды")
+    logger.info("4. Все лиды")
 
     choice = input("\nВаш выбор (1-4): ").strip()
 
@@ -112,27 +116,27 @@ def main():
         leads = manager.get_leads()
         title = "Все лиды"
     else:
-        print("Неверный выбор")
+        logger.info("Неверный выбор")
         return
 
-    print(f"\n{title}: найдено {len(leads)} записей")
+    logger.info(f"\n{title}: найдено {len(leads)} записей")
 
     if leads:
         stats = manager.get_statistics(leads)
-        print(f"\nСтатистика:")
-        print(f"  Всего: {stats['total']}")
-        print(f"  Общая сумма: {stats['total_opportunity']:.2f}")
-        print(f"  Средняя сумма: {stats['avg_opportunity']:.2f}")
+        logger.info(f"\nСтатистика:")
+        logger.info(f"  Всего: {stats['total']}")
+        logger.info(f"  Общая сумма: {stats['total_opportunity']:.2f}")
+        logger.info(f"  Средняя сумма: {stats['avg_opportunity']:.2f}")
 
         if stats['by_status']:
-            print(f"\n  По статусам:")
+            logger.info(f"\n  По статусам:")
             for status, count in stats['by_status'].items():
-                print(f"    {status}: {count}")
+                logger.info(f"    {status}: {count}")
 
         filename = manager.export_to_excel(leads)
-        print(f"\n[OK] Gotovo! Fayl: {filename}")
+        logger.info(f"\n[OK] Gotovo! Fayl: {filename}")
     else:
-        print("Lidy ne naydeny")
+        logger.info("Lidy ne naydeny")
 
 
 if __name__ == '__main__':

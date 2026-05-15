@@ -3,6 +3,10 @@ from datetime import datetime, timedelta
 import pandas as pd
 import config
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class ContactsManager:
     def __init__(self):
@@ -75,7 +79,7 @@ class ContactsManager:
                 df['DATE_MODIFY'] = pd.to_datetime(df['DATE_MODIFY'], utc=True).dt.tz_localize(None)
 
         df.to_excel(filename, index=False, engine='openpyxl')
-        print(f"[OK] Otchet sohranen: {filename}")
+        logger.info(f"[OK] Otchet sohranen: {filename}")
         return filename
 
     def get_statistics(self, contacts: list) -> dict:
@@ -96,18 +100,18 @@ class ContactsManager:
 
 
 def main():
-    print("=== Отчет по контактам Bitrix24 ===\n")
+    logger.info("=== Отчет по контактам Bitrix24 ===\n")
 
     manager = ContactsManager()
 
     if not manager.api.test_connection():
         return
 
-    print("\nВыберите действие:")
-    print("1. Все контакты за последние 7 дней")
-    print("2. Все контакты за последние 30 дней")
-    print("3. Все контакты")
-    print("4. Поиск контакта")
+    logger.info("\nВыберите действие:")
+    logger.info("1. Все контакты за последние 7 дней")
+    logger.info("2. Все контакты за последние 30 дней")
+    logger.info("3. Все контакты")
+    logger.info("4. Поиск контакта")
 
     choice = input("\nВаш выбор (1-4): ").strip()
 
@@ -125,23 +129,23 @@ def main():
         contacts = manager.search_contacts(query)
         title = f"Результаты поиска: {query}"
     else:
-        print("Неверный выбор")
+        logger.info("Неверный выбор")
         return
 
-    print(f"\n{title}: найдено {len(contacts)} записей")
+    logger.info(f"\n{title}: найдено {len(contacts)} записей")
 
     if contacts:
         stats = manager.get_statistics(contacts)
-        print(f"\nСтатистика:")
-        print(f"  Всего: {stats['total']}")
-        print(f"  С телефоном: {stats['with_phone']}")
-        print(f"  С email: {stats['with_email']}")
-        print(f"  С компанией: {stats['with_company']}")
+        logger.info(f"\nСтатистика:")
+        logger.info(f"  Всего: {stats['total']}")
+        logger.info(f"  С телефоном: {stats['with_phone']}")
+        logger.info(f"  С email: {stats['with_email']}")
+        logger.info(f"  С компанией: {stats['with_company']}")
 
         filename = manager.export_to_excel(contacts)
-        print(f"\n✓ Готово! Файл: {filename}")
+        logger.info(f"\n✓ Готово! Файл: {filename}")
     else:
-        print("Контакты не найдены")
+        logger.info("Контакты не найдены")
 
 
 if __name__ == '__main__':

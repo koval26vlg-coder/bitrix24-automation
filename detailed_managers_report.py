@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Детальный анализ эффективности менеджеров
 """
@@ -9,7 +13,7 @@ import config
 
 
 def main():
-    print("=== DETALNAYA STATISTIKA MENEDZHEROV ===\n")
+    logger.info("=== DETALNAYA STATISTIKA MENEDZHEROV ===\n")
 
     api = Bitrix24API()
 
@@ -20,36 +24,36 @@ def main():
     date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
     # Получаем менеджеров
-    print("Poluchenie spiska menedzherov...")
+    logger.info("Poluchenie spiska menedzherov...")
     users_result = api.call('user.get', {'FILTER': {'ACTIVE': True}})
     users = {u['ID']: f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() for u in users_result.get('result', [])}
-    print(f"Vsego aktivnyh polzovateley: {len(users)}\n")
+    logger.info(f"Vsego aktivnyh polzovateley: {len(users)}\n")
 
     # Получаем звонки
-    print("Poluchenie zvonkov...")
+    logger.info("Poluchenie zvonkov...")
     calls_result = api.call('voximplant.statistic.get', {
         'FILTER': {'>=CALL_START_DATE': date_from}
     })
     calls = calls_result.get('result', [])
-    print(f"Vsego zvonkov: {len(calls)}\n")
+    logger.info(f"Vsego zvonkov: {len(calls)}\n")
 
     # Получаем сделки
-    print("Poluchenie sdelok...")
+    logger.info("Poluchenie sdelok...")
     deals_result = api.call('crm.deal.list', {
         'filter': {'>=DATE_CREATE': date_from},
         'select': ['ID', 'TITLE', 'STAGE_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
     })
     deals = deals_result.get('result', [])
-    print(f"Vsego sdelok: {len(deals)}\n")
+    logger.info(f"Vsego sdelok: {len(deals)}\n")
 
     # Получаем лиды
-    print("Poluchenie lidov...")
+    logger.info("Poluchenie lidov...")
     leads_result = api.call('crm.lead.list', {
         'filter': {'>=DATE_CREATE': date_from},
         'select': ['ID', 'TITLE', 'STATUS_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
     })
     leads = leads_result.get('result', [])
-    print(f"Vsego lidov: {len(leads)}\n")
+    logger.info(f"Vsego lidov: {len(leads)}\n")
 
     # Анализ по менеджерам
     manager_stats = {}
@@ -114,8 +118,8 @@ def main():
         df['avg_deal_sum'] = (df['deals_sum'] / df['deals'].replace(0, 1)).round(2)
         df = df.sort_values('calls', ascending=False)
 
-        print("=== STATISTIKA MENEDZHEROV (za poslednie 30 dney) ===\n")
-        print(df[['name', 'calls', 'avg_call_duration', 'deals', 'deals_sum', 'leads']].to_string())
+        logger.info("=== STATISTIKA MENEDZHEROV (za poslednie 30 dney) ===\n")
+        logger.info(df[['name', 'calls', 'avg_call_duration', 'deals', 'deals_sum', 'leads']].to_string())
 
         # Экспорт
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -135,9 +139,9 @@ def main():
         })
 
         df_export.to_excel(filename, index=False, engine='openpyxl')
-        print(f"\n[OK] Otchet sohranen: {filename}")
+        logger.info(f"\n[OK] Otchet sohranen: {filename}")
     else:
-        print("[INFO] Net dannyh")
+        logger.info("[INFO] Net dannyh")
 
 
 if __name__ == '__main__':

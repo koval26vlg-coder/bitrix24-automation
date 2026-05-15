@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Статистика звонков менеджеров с анализом эффективности (автоматический режим)
 """
@@ -177,11 +181,11 @@ class ManagersCallStats:
                 df_export[col] = df_export[col].round(2)
 
         df_export.to_excel(filename, index=False, engine='openpyxl')
-        print(f"[OK] Otchet sohranen: {filename}")
+        logger.info(f"[OK] Otchet sohranen: {filename}")
 
 
 def main():
-    print("=== STATISTIKA ZVONKOV MENEDZHEROV ===\n")
+    logger.info("=== STATISTIKA ZVONKOV MENEDZHEROV ===\n")
 
     # Параметр из командной строки или по умолчанию 30 дней
     days = 30
@@ -191,49 +195,49 @@ def main():
         except:
             days = 30
 
-    print(f"Period: poslednie {days} dney\n")
+    logger.info(f"Period: poslednie {days} dney\n")
 
     stats = ManagersCallStats()
 
     if not stats.api.test_connection():
         return
 
-    print(f"Poluchenie dannyh za poslednie {days} dney...")
+    logger.info(f"Poluchenie dannyh za poslednie {days} dney...")
 
     # Получаем данные
     managers = stats.get_managers_list()
-    print(f"Naydeno menedzherov: {len(managers)}")
+    logger.info(f"Naydeno menedzherov: {len(managers)}")
 
     calls = stats.get_calls_stats(days)
-    print(f"Naydeno zvonkov: {len(calls)}")
+    logger.info(f"Naydeno zvonkov: {len(calls)}")
 
     deals = stats.get_deals_stats(days)
-    print(f"Naydeno sdelok: {len(deals)}")
+    logger.info(f"Naydeno sdelok: {len(deals)}")
 
     # Анализируем
-    print("\nAnaliz effektivnosti...")
+    logger.info("\nAnaliz effektivnosti...")
     df = stats.analyze_manager_performance(calls, deals, managers)
 
     if df.empty:
-        print("[INFO] Net dannyh dlya analiza")
+        logger.info("[INFO] Net dannyh dlya analiza")
         return
 
     # Выводим топ-5
-    print("\n=== TOP-5 MENEDZHEROV PO KOLICHESTVU ZVONKOV ===")
-    print(df[['manager_name', 'total_calls', 'avg_call_duration', 'success_rate']].head(5).to_string(index=False))
+    logger.info("\n=== TOP-5 MENEDZHEROV PO KOLICHESTVU ZVONKOV ===")
+    logger.info(df[['manager_name', 'total_calls', 'avg_call_duration', 'success_rate']].head(5).to_string(index=False))
 
     if 'total_deals' in df.columns:
-        print("\n=== TOP-5 MENEDZHEROV PO SDELKAM ===")
+        logger.info("\n=== TOP-5 MENEDZHEROV PO SDELKAM ===")
         top_deals = df[df['total_deals'] > 0].sort_values('deals_sum', ascending=False)
         if not top_deals.empty:
-            print(top_deals[['manager_name', 'total_deals', 'deals_sum', 'conversion_rate']].head(5).to_string(index=False))
+            logger.info(top_deals[['manager_name', 'total_deals', 'deals_sum', 'conversion_rate']].head(5).to_string(index=False))
 
     # Экспорт
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     filename = f"{config.REPORTS_DIR}/managers_call_stats_{days}days_{timestamp}.xlsx"
 
     stats.export_to_excel(df, filename)
-    print(f"\n[OK] Polnyy otchet sohranen v: {filename}")
+    logger.info(f"\n[OK] Polnyy otchet sohranen v: {filename}")
 
 
 if __name__ == '__main__':

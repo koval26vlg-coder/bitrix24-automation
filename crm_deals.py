@@ -3,6 +3,10 @@ from datetime import datetime, timedelta
 import pandas as pd
 import config
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class DealsManager:
     def __init__(self):
@@ -83,7 +87,7 @@ class DealsManager:
                 df['CLOSEDATE'] = pd.to_datetime(df['CLOSEDATE'], utc=True).dt.tz_localize(None)
 
         df.to_excel(filename, index=False, engine='openpyxl')
-        print(f"[OK] Otchet sohranen: {filename}")
+        logger.info(f"[OK] Otchet sohranen: {filename}")
         return filename
 
     def get_statistics(self, deals: list) -> dict:
@@ -107,19 +111,19 @@ class DealsManager:
 
 
 def main():
-    print("=== Отчет по сделкам Bitrix24 ===\n")
+    logger.info("=== Отчет по сделкам Bitrix24 ===\n")
 
     manager = DealsManager()
 
     if not manager.api.test_connection():
         return
 
-    print("\nВыберите действие:")
-    print("1. Все сделки за последние 7 дней")
-    print("2. Все сделки за последние 30 дней")
-    print("3. Только открытые сделки")
-    print("4. Выигранные сделки за месяц")
-    print("5. Все сделки")
+    logger.info("\nВыберите действие:")
+    logger.info("1. Все сделки за последние 7 дней")
+    logger.info("2. Все сделки за последние 30 дней")
+    logger.info("3. Только открытые сделки")
+    logger.info("4. Выигранные сделки за месяц")
+    logger.info("5. Все сделки")
 
     choice = input("\nВаш выбор (1-5): ").strip()
 
@@ -139,30 +143,30 @@ def main():
         deals = manager.get_deals()
         title = "Все сделки"
     else:
-        print("Неверный выбор")
+        logger.info("Неверный выбор")
         return
 
-    print(f"\n{title}: найдено {len(deals)} записей")
+    logger.info(f"\n{title}: найдено {len(deals)} записей")
 
     if deals:
         stats = manager.get_statistics(deals)
-        print(f"\nСтатистика:")
-        print(f"  Всего: {stats['total']}")
-        print(f"  Открытых: {stats['open_count']}")
-        print(f"  Закрытых: {stats['closed_count']}")
-        print(f"  Общая сумма: {stats['total_opportunity']:.2f}")
-        print(f"  Средняя сумма: {stats['avg_opportunity']:.2f}")
-        print(f"  Средняя вероятность: {stats['avg_probability']:.0f}%")
+        logger.info(f"\nСтатистика:")
+        logger.info(f"  Всего: {stats['total']}")
+        logger.info(f"  Открытых: {stats['open_count']}")
+        logger.info(f"  Закрытых: {stats['closed_count']}")
+        logger.info(f"  Общая сумма: {stats['total_opportunity']:.2f}")
+        logger.info(f"  Средняя сумма: {stats['avg_opportunity']:.2f}")
+        logger.info(f"  Средняя вероятность: {stats['avg_probability']:.0f}%")
 
         if stats['by_stage']:
-            print(f"\n  По стадиям:")
+            logger.info(f"\n  По стадиям:")
             for stage, count in stats['by_stage'].items():
-                print(f"    {stage}: {count}")
+                logger.info(f"    {stage}: {count}")
 
         filename = manager.export_to_excel(deals)
-        print(f"\n✓ Готово! Файл: {filename}")
+        logger.info(f"\n✓ Готово! Файл: {filename}")
     else:
-        print("Сделки не найдены")
+        logger.info("Сделки не найдены")
 
 
 if __name__ == '__main__':

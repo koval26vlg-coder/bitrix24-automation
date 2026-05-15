@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Детальный анализ звонков с разбивкой по дням и клиентам
 """
@@ -9,7 +13,7 @@ import config
 
 
 def main():
-    print("=== DETALNAYA STATISTIKA ZVONKOV ===\n")
+    logger.info("=== DETALNAYA STATISTIKA ZVONKOV ===\n")
 
     api = Bitrix24API()
 
@@ -20,15 +24,15 @@ def main():
     date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
     # Получаем звонки
-    print(f"Poluchenie zvonkov za poslednie {days} dney...")
+    logger.info(f"Poluchenie zvonkov za poslednie {days} dney...")
     calls_result = api.call('voximplant.statistic.get', {
         'FILTER': {'>=CALL_START_DATE': date_from}
     })
     calls = calls_result.get('result', [])
-    print(f"Vsego zvonkov: {len(calls)}\n")
+    logger.info(f"Vsego zvonkov: {len(calls)}\n")
 
     if not calls:
-        print("[INFO] Net zvonkov za period")
+        logger.info("[INFO] Net zvonkov za period")
         return
 
     # Преобразуем в DataFrame
@@ -59,34 +63,34 @@ def main():
     df['duration_min'] = (df['CALL_DURATION'] / 60).round(2)
 
     # Статистика по дням
-    print("=== STATISTIKA PO DNYAM ===\n")
+    logger.info("=== STATISTIKA PO DNYAM ===\n")
     daily_stats = df.groupby('date').agg({
         'ID': 'count',
         'CALL_DURATION': 'sum',
         'duration_min': 'sum'
     }).rename(columns={'ID': 'calls', 'CALL_DURATION': 'total_seconds'})
     daily_stats['avg_duration'] = (daily_stats['total_seconds'] / daily_stats['calls']).round(1)
-    print(daily_stats.to_string())
+    logger.info(daily_stats.to_string())
 
     # Статистика по типам звонков
-    print("\n\n=== STATISTIKA PO TIPAM ZVONKOV ===\n")
+    logger.info("\n\n=== STATISTIKA PO TIPAM ZVONKOV ===\n")
     type_stats = df.groupby('call_type_name').agg({
         'ID': 'count',
         'CALL_DURATION': 'sum',
         'duration_min': 'sum'
     }).rename(columns={'ID': 'calls', 'CALL_DURATION': 'total_seconds'})
     type_stats['avg_duration'] = (type_stats['total_seconds'] / type_stats['calls']).round(1)
-    print(type_stats.to_string())
+    logger.info(type_stats.to_string())
 
     # Статистика по клиентам (топ-10)
-    print("\n\n=== TOP-10 KLIENTOV PO KOLICHESTVU ZVONKOV ===\n")
+    logger.info("\n\n=== TOP-10 KLIENTOV PO KOLICHESTVU ZVONKOV ===\n")
     client_stats = df.groupby('PHONE_NUMBER').agg({
         'ID': 'count',
         'CALL_DURATION': 'sum',
         'duration_min': 'sum'
     }).rename(columns={'ID': 'calls', 'CALL_DURATION': 'total_seconds'})
     client_stats = client_stats.sort_values('calls', ascending=False).head(10)
-    print(client_stats.to_string())
+    logger.info(client_stats.to_string())
 
     # Экспорт детального отчёта
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -117,16 +121,16 @@ def main():
         type_stats.to_excel(writer, sheet_name='Po tipam')
         client_stats.to_excel(writer, sheet_name='Po klientam')
 
-    print(f"\n[OK] Detalniy otchet sohranen: {filename}")
+    logger.info(f"\n[OK] Detalniy otchet sohranen: {filename}")
 
     # Общая статистика
-    print("\n\n=== OBSHCHAYA STATISTIKA ===")
-    print(f"Vsego zvonkov: {len(df)}")
-    print(f"Obshchaya dlitelnost: {df['duration_min'].sum():.1f} min")
-    print(f"Srednyaya dlitelnost: {df['CALL_DURATION'].mean():.1f} sek")
-    print(f"Uspeshnyh zvonkov: {len(df[df['status'] == 'Uspeshnyy'])}")
-    print(f"Zvonkov s zapisyu: {len(df[df['RECORD_FILE_ID'].notna()])}")
-    print(f"Unikalnyh klientov: {df['PHONE_NUMBER'].nunique()}")
+    logger.info("\n\n=== OBSHCHAYA STATISTIKA ===")
+    logger.info(f"Vsego zvonkov: {len(df)}")
+    logger.info(f"Obshchaya dlitelnost: {df['duration_min'].sum():.1f} min")
+    logger.info(f"Srednyaya dlitelnost: {df['CALL_DURATION'].mean():.1f} sek")
+    logger.info(f"Uspeshnyh zvonkov: {len(df[df['status'] == 'Uspeshnyy'])}")
+    logger.info(f"Zvonkov s zapisyu: {len(df[df['RECORD_FILE_ID'].notna()])}")
+    logger.info(f"Unikalnyh klientov: {df['PHONE_NUMBER'].nunique()}")
 
 
 if __name__ == '__main__':

@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Аналитика по сделкам в воронке ОП
 """
@@ -12,32 +16,32 @@ api = Bitrix24API()
 if not api.test_connection():
     exit()
 
-print("=== ANALITIKA SDELOK V VORONKE OP ===\n")
+logger.info("=== ANALITIKA SDELOK V VORONKE OP ===\n")
 
 # Сначала получим список воронок
-print("Poluchenie spiska voronok...")
+logger.info("Poluchenie spiska voronok...")
 categories_result = api.call('crm.category.list', {'entityTypeId': 2})  # 2 = deals
 categories = categories_result.get('result', {}).get('categories', [])
 
-print("\nDostupnye voronki:")
+logger.info("\nDostupnye voronki:")
 for cat in categories:
-    print(f"  ID: {cat.get('id')}, Nazvanie: {cat.get('name')}")
+    logger.info(f"  ID: {cat.get('id')}, Nazvanie: {cat.get('name')}")
 
 # Ищем воронку ОП
 op_category_id = None
 for cat in categories:
     if 'ОП' in cat.get('name', ''):
         op_category_id = cat.get('id')
-        print(f"\n[OK] Naydena voronka OP: ID={op_category_id}, Nazvanie={cat.get('name')}")
+        logger.info(f"\n[OK] Naydena voronka OP: ID={op_category_id}, Nazvanie={cat.get('name')}")
         break
 
 if not op_category_id:
-    print("\n[INFO] Voronka s nazvaniem 'OP' ne naydena")
-    print("Ispolzuem vse sdelki...")
+    logger.info("\n[INFO] Voronka s nazvaniem 'OP' ne naydena")
+    logger.info("Ispolzuem vse sdelki...")
     op_category_id = None
 
 # Получаем сделки
-print("\nPoluchenie sdelok...")
+logger.info("\nPoluchenie sdelok...")
 
 filter_params = {}
 if op_category_id:
@@ -52,10 +56,10 @@ result = api.call('crm.deal.list', {
 
 deals = result.get('result', [])
 
-print(f"Vsego sdelok v voronke: {len(deals)}\n")
+logger.info(f"Vsego sdelok v voronke: {len(deals)}\n")
 
 if not deals:
-    print("Sdelok ne naydeno")
+    logger.info("Sdelok ne naydeno")
     exit()
 
 # Статистика
@@ -65,41 +69,41 @@ df = pd.DataFrame(deals)
 df['OPPORTUNITY'] = pd.to_numeric(df['OPPORTUNITY'], errors='coerce').fillna(0)
 
 # По стадиям
-print("=== PO STADIYAM ===")
+logger.info("=== PO STADIYAM ===")
 stages = Counter(df['STAGE_ID'])
 for stage, count in stages.most_common():
     stage_sum = df[df['STAGE_ID'] == stage]['OPPORTUNITY'].sum()
-    print(f"  {stage}: {count} sdelok, summa: {stage_sum:,.2f}")
+    logger.info(f"  {stage}: {count} sdelok, summa: {stage_sum:,.2f}")
 
 # По менеджерам
-print("\n=== PO MENEDZHERAM ===")
+logger.info("\n=== PO MENEDZHERAM ===")
 managers = Counter(df['ASSIGNED_BY_ID'])
 for manager_id, count in managers.most_common(10):
     manager_sum = df[df['ASSIGNED_BY_ID'] == manager_id]['OPPORTUNITY'].sum()
-    print(f"  Manager ID {manager_id}: {count} sdelok, summa: {manager_sum:,.2f}")
+    logger.info(f"  Manager ID {manager_id}: {count} sdelok, summa: {manager_sum:,.2f}")
 
 # Общая статистика
-print("\n=== OBSHCHAYA STATISTIKA ===")
-print(f"Vsego sdelok: {len(df)}")
-print(f"Obshchaya summa: {df['OPPORTUNITY'].sum():,.2f}")
-print(f"Srednyaya summa sdelki: {df['OPPORTUNITY'].mean():,.2f}")
-print(f"Maksimalnaya sdelka: {df['OPPORTUNITY'].max():,.2f}")
-print(f"Minimalnaya sdelka: {df['OPPORTUNITY'].min():,.2f}")
+logger.info("\n=== OBSHCHAYA STATISTIKA ===")
+logger.info(f"Vsego sdelok: {len(df)}")
+logger.info(f"Obshchaya summa: {df['OPPORTUNITY'].sum():,.2f}")
+logger.info(f"Srednyaya summa sdelki: {df['OPPORTUNITY'].mean():,.2f}")
+logger.info(f"Maksimalnaya sdelka: {df['OPPORTUNITY'].max():,.2f}")
+logger.info(f"Minimalnaya sdelka: {df['OPPORTUNITY'].min():,.2f}")
 
 # Закрытые сделки
 closed = df[df['CLOSED'] == 'Y']
 if len(closed) > 0:
-    print(f"\nZakrytyh sdelok: {len(closed)}")
-    print(f"Summa zakrytyh: {closed['OPPORTUNITY'].sum():,.2f}")
+    logger.info(f"\nZakrytyh sdelok: {len(closed)}")
+    logger.info(f"Summa zakrytyh: {closed['OPPORTUNITY'].sum():,.2f}")
 
 # За последние 30 дней
 date_30_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
 df['DATE_CREATE'] = pd.to_datetime(df['DATE_CREATE'], utc=True, errors='coerce')
 recent = df[df['DATE_CREATE'] >= date_30_days_ago]
 
-print(f"\n=== ZA POSLEDNIE 30 DNEY ===")
-print(f"Novyh sdelok: {len(recent)}")
-print(f"Summa novyh: {recent['OPPORTUNITY'].sum():,.2f}")
+logger.info(f"\n=== ZA POSLEDNIE 30 DNEY ===")
+logger.info(f"Novyh sdelok: {len(recent)}")
+logger.info(f"Summa novyh: {recent['OPPORTUNITY'].sum():,.2f}")
 
 # Экспорт
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -114,4 +118,4 @@ for col in date_columns:
         df_export[col] = pd.to_datetime(df_export[col], utc=True, errors='coerce').dt.tz_localize(None)
 
 df_export.to_excel(filename, index=False, engine='openpyxl')
-print(f"\n[OK] Dannye sohraneny: {filename}")
+logger.info(f"\n[OK] Dannye sohraneny: {filename}")

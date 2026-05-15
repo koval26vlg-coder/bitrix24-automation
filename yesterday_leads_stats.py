@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Статистика лидов за вчерашний день
 """
@@ -16,7 +20,7 @@ yesterday = datetime.now() - timedelta(days=1)
 date_from = yesterday.strftime('%Y-%m-%d')
 date_to = yesterday.strftime('%Y-%m-%d') + ' 23:59:59'
 
-print(f"=== STATISTIKA LIDOV ZA {date_from} ===\n")
+logger.info(f"=== STATISTIKA LIDOV ZA {date_from} ===\n")
 
 # Получаем лиды
 result = api.call('crm.lead.list', {
@@ -29,16 +33,16 @@ result = api.call('crm.lead.list', {
 
 leads = result.get('result', [])
 
-print(f"Vsego lidov: {len(leads)}\n")
+logger.info(f"Vsego lidov: {len(leads)}\n")
 
 # Статистика по статусам
 statuses = Counter([l.get('STATUS_ID') for l in leads])
-print("Po statusam:")
+logger.info("Po statusam:")
 for status, count in statuses.most_common():
-    print(f"  {status}: {count}")
+    logger.info(f"  {status}: {count}")
 
 # Статистика по источникам
 sources = Counter([l.get('SOURCE_ID') for l in leads])
-print("\nPo istochnikam:")
+logger.info("\nPo istochnikam:")
 for source, count in sources.most_common():
-    print(f"  {source}: {count}")
+    logger.info(f"  {source}: {count}")

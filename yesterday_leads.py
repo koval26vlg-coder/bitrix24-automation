@@ -1,3 +1,7 @@
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 """
 Лиды за вчерашний день
 """
@@ -15,7 +19,7 @@ yesterday = datetime.now() - timedelta(days=1)
 date_from = yesterday.strftime('%Y-%m-%d')
 date_to = yesterday.strftime('%Y-%m-%d') + ' 23:59:59'
 
-print(f"=== LIDY ZA {date_from} ===\n")
+logger.info(f"=== LIDY ZA {date_from} ===\n")
 
 # Получаем лиды
 result = api.call('crm.lead.list', {
@@ -29,20 +33,20 @@ result = api.call('crm.lead.list', {
 
 leads = result.get('result', [])
 
-print(f"Vsego lidov: {len(leads)}\n")
+logger.info(f"Vsego lidov: {len(leads)}\n")
 
 if leads:
-    print("Spisok lidov:")
+    logger.info("Spisok lidov:")
     for lead in leads:
         name = f"{lead.get('NAME', '')} {lead.get('LAST_NAME', '')}".strip()
         if not name:
             name = lead.get('TITLE', 'Bez imeni')
 
-        print(f"  ID: {lead.get('ID')}")
-        print(f"    Imya: {name}")
-        print(f"    Status: {lead.get('STATUS_ID')}")
-        print(f"    Istochnik: {lead.get('SOURCE_ID')}")
-        print(f"    Sozdano: {lead.get('DATE_CREATE')}")
-        print()
+        logger.info(f"  ID: {lead.get('ID')}")
+        logger.info(f"    Imya: {name}")
+        logger.info(f"    Status: {lead.get('STATUS_ID')}")
+        logger.info(f"    Istochnik: {lead.get('SOURCE_ID')}")
+        logger.info(f"    Sozdano: {lead.get('DATE_CREATE')}")
+        logger.info()
 else:
-    print("Lidov ne naydeno")
+    logger.info("Lidov ne naydeno")

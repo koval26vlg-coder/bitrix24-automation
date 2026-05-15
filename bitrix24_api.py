@@ -4,6 +4,10 @@ import time
 from typing import Dict, List, Any, Optional
 import config
 
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 class Bitrix24API:
     def __init__(self, webhook_url: Optional[str] = None):
@@ -57,7 +61,7 @@ class Bitrix24API:
                     if sleep_for is None:
                         # exp backoff + jitter
                         sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
-                    print(f"[WARN] Retry {attempt}/{max_attempts} {method} (request_id={request_id}): {last_error}; sleep={sleep_for:.2f}s")
+                    logger.warning(f"[WARN] Retry {attempt}/{max_attempts} {method} (request_id={request_id}): {last_error}; sleep={sleep_for:.2f}s")
                     if attempt < max_attempts:
                         time.sleep(sleep_for)
                         continue
@@ -76,7 +80,7 @@ class Bitrix24API:
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 last_error = f"{type(e).__name__}: {str(e)}"
                 sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
-                print(f"[WARN] Retry {attempt}/{max_attempts} {method}: {last_error}; sleep={sleep_for:.2f}s")
+                logger.warning(f"[WARN] Retry {attempt}/{max_attempts} {method}: {last_error}; sleep={sleep_for:.2f}s")
                 if attempt < max_attempts:
                     time.sleep(sleep_for)
                     continue
@@ -129,8 +133,8 @@ class Bitrix24API:
         """Проверка подключения к API"""
         try:
             result = self.call('profile')
-            print(f"[OK] Podklyuchenie uspeshno! Polzovatel: {result['result'].get('NAME', 'Unknown')}")
+            logger.info(f"[OK] Podklyuchenie uspeshno! Polzovatel: {result['result'].get('NAME', 'Unknown')}")
             return True
         except Exception as e:
-            print(f"[ERROR] Oshibka podklyucheniya: {str(e)}")
+            logger.error(f"[ERROR] Oshibka podklyucheniya: {str(e)}")
             return False

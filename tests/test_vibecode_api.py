@@ -30,7 +30,13 @@ def test_vibecode_filter_maps_common_bitrix_fields():
 
 def test_vibecode_deal_activity_and_stage_history_mapping():
     assert vibe_deal_to_bitrix(
-        {"id": 10, "title": "Сделка", "assignedById": 5, "stageId": "C1:NEW", "createdAt": "2026-05-01"}
+        {
+            "id": 10,
+            "title": "Сделка",
+            "assignedById": 5,
+            "stageId": "C1:NEW",
+            "createdAt": "2026-05-01",
+        }
     ) == {
         "id": 10,
         "title": "Сделка",
@@ -43,8 +49,14 @@ def test_vibecode_deal_activity_and_stage_history_mapping():
         "STAGE_ID": "C1:NEW",
         "DATE_CREATE": "2026-05-01",
     }
-    assert vibe_activity_to_bitrix({"id": 100, "originId": "VI_1", "startTime": "2026"})["ORIGIN_ID"] == "VI_1"
-    assert vibe_stage_history_to_bitrix({"id": 1, "ownerId": 10, "stageId": "C1:NEW"})["OWNER_ID"] == 10
+    assert (
+        vibe_activity_to_bitrix({"id": 100, "originId": "VI_1", "startTime": "2026"})["ORIGIN_ID"]
+        == "VI_1"
+    )
+    assert (
+        vibe_stage_history_to_bitrix({"id": 1, "ownerId": 10, "stageId": "C1:NEW"})["OWNER_ID"]
+        == 10
+    )
 
 
 def test_vibecode_download_contract_with_fake_client(tmp_path):

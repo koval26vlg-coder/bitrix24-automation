@@ -1,13 +1,14 @@
-﻿from __future__ import annotations
-import re
+from __future__ import annotations
+
 import html
+import re
 from dataclasses import dataclass
-from typing import Any, Dict, Optional
+from typing import Any
 
 from bitrix.api import Bitrix24API
 
 
-def guess_recording_url(call_obj: Dict[str, Any]) -> Optional[str]:
+def guess_recording_url(call_obj: dict[str, Any]) -> str | None:
     """
     Эвристика: ищем URL записи внутри объекта voximplant.statistic.get.
     """
@@ -32,12 +33,14 @@ def guess_recording_url(call_obj: Dict[str, Any]) -> Optional[str]:
         vv = v.lower()
         if not vv.startswith("http"):
             continue
-        if any(x in vv for x in [".mp3", ".wav", ".ogg", "download", "record", "voximplant", "webdav"]):
+        if any(
+            x in vv for x in [".mp3", ".wav", ".ogg", "download", "record", "voximplant", "webdav"]
+        ):
             return html.unescape(v).strip()
     return None
 
 
-def safe_int(x: Any) -> Optional[int]:
+def safe_int(x: Any) -> int | None:
     try:
         return int(x)
     except Exception:
@@ -47,23 +50,23 @@ def safe_int(x: Any) -> Optional[int]:
 @dataclass
 class RecordingResolution:
     call_id: str
-    activity_id: Optional[int]
-    disk_file_id: Optional[int]
+    activity_id: int | None
+    disk_file_id: int | None
     candidates: list[str]
-    diagnostics: Dict[str, Any]
+    diagnostics: dict[str, Any]
 
 
-async def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
+async def activity_get(api: Bitrix24API, activity_id: int) -> dict[str, Any]:
     res = await api.call("crm.activity.get", {"id": int(activity_id)})
     return res.get("result", {}) or {}
 
 
-async def disk_file_get(api: Bitrix24API, disk_file_id: int) -> Dict[str, Any]:
+async def disk_file_get(api: Bitrix24API, disk_file_id: int) -> dict[str, Any]:
     res = await api.call("disk.file.get", {"id": int(disk_file_id)})
     return res.get("result", {}) or {}
 
 
-async def disk_file_get_external_link(api: Bitrix24API, disk_file_id: int) -> Optional[str]:
+async def disk_file_get_external_link(api: Bitrix24API, disk_file_id: int) -> str | None:
     try:
         res = await api.call("disk.file.getExternalLink", {"id": int(disk_file_id)})
         link = res.get("result")
@@ -72,7 +75,7 @@ async def disk_file_get_external_link(api: Bitrix24API, disk_file_id: int) -> Op
         return None
 
 
-async def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[Dict[str, Any]]:
+async def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> dict[str, Any] | None:
     if not call_id:
         return None
     # На части порталов crm.activity.ORIGIN_ID имеет префикс "VI_", а в статистике CALL_ID без него.
@@ -93,18 +96,20 @@ async def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[D
     return None
 
 
-async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional[int]) -> RecordingResolution:
+async def resolve_call_recording(
+    api: Bitrix24API, call_id: str, activity_id: int | None
+) -> RecordingResolution:
     """
     Единый resolver записи звонка:
     crm.activity.get -> voximplant.statistic.get -> disk.file.get / externalLink -> URL candidates.
     """
-    diag: Dict[str, Any] = {"call_id": call_id, "activity_id": activity_id}
+    diag: dict[str, Any] = {"call_id": call_id, "activity_id": activity_id}
     candidates: list[str] = []
     activity_candidates: list[str] = []
     statistic_candidates: list[str] = []
     disk_download_candidates: list[str] = []
     disk_page_candidates: list[str] = []
-    disk_id: Optional[int] = None
+    disk_id: int | None = None
 
     # 1) crm.activity.get -> FILES[].id / FILES[].url
     if activity_id:
@@ -122,7 +127,10 @@ async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Op
     # 2) voximplant.statistic.get -> RECORD_FILE_ID + possibly direct URL
     stat = await statistic_get_by_call_id(api, call_id)
     if stat:
-        diag["statistic"] = {k: stat.get(k) for k in ["CALL_ID", "CRM_ACTIVITY_ID", "RECORD_FILE_ID", "CALL_START_DATE"]}
+        diag["statistic"] = {
+            k: stat.get(k)
+            for k in ["CALL_ID", "CRM_ACTIVITY_ID", "RECORD_FILE_ID", "CALL_START_DATE"]
+        }
         disk_id = disk_id or safe_int(stat.get("RECORD_FILE_ID"))
         url = guess_recording_url(stat)
         if url:
@@ -131,16 +139,16 @@ async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Op
     # 3) disk.file.get / external link -> download/detail/external
     if disk_id:
         diag["disk_file_id"] = disk_id
-        disk_meta: Dict[str, Any] = {}
+        disk_meta: dict[str, Any] = {}
         disk_err = None
         try:
             disk_meta = await disk_file_get(api, disk_id)
         except Exception as e:
             disk_err = str(e)
-        
+
         if disk_err:
             diag["disk_file_get_error"] = disk_err
-        
+
         if isinstance(disk_meta, dict):
             u = disk_meta.get("DOWNLOAD_URL")
             if isinstance(u, str) and u.startswith("http"):
@@ -159,7 +167,7 @@ async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Op
         else:
             diag["external_link_ok"] = False
 
-    # Быстрый путь: прямые disk DOWNLOAD_URL идут первыми. UI/страницы Bitrix оставляем последним fallback.
+    # Быстрый путь: прямые disk DOWNLOAD_URL идут первыми. UI/страницы Bitrix оставляем последним fallback.  # noqa: E501
     candidates.extend(disk_download_candidates)
     candidates.extend(statistic_candidates)
     candidates.extend(activity_candidates)
@@ -178,4 +186,10 @@ async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Op
         seen.add(uu)
         out.append(u)
 
-    return RecordingResolution(call_id=call_id, activity_id=activity_id, disk_file_id=disk_id, candidates=out, diagnostics=diag)
+    return RecordingResolution(
+        call_id=call_id,
+        activity_id=activity_id,
+        disk_file_id=disk_id,
+        candidates=out,
+        diagnostics=diag,
+    )

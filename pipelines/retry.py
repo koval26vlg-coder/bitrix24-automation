@@ -2,13 +2,13 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pipelines.deals import deal_id_from_report_row
 from pipelines.stages import safe_int
 
 
-def load_report_json(path: str | Path) -> List[Dict[str, Any]]:
+def load_report_json(path: str | Path) -> list[dict[str, Any]]:
     report_path = Path(path)
     if not report_path.exists():
         raise SystemExit(f"Отчет не найден: {report_path}")
@@ -18,10 +18,10 @@ def load_report_json(path: str | Path) -> List[Dict[str, Any]]:
     return [row for row in raw if isinstance(row, dict)]
 
 
-def load_retry_scope(path: str | Path) -> Dict[str, Any]:
+def load_retry_scope(path: str | Path) -> dict[str, Any]:
     rows = load_report_json(path)
-    deal_ids: List[str] = []
-    activity_ids_by_deal: Dict[str, set[int]] = {}
+    deal_ids: list[str] = []
+    activity_ids_by_deal: dict[str, set[int]] = {}
     full_deals: set[str] = set()
     errors = 0
     seen_deals: set[str] = set()
@@ -52,15 +52,15 @@ def load_retry_scope(path: str | Path) -> Dict[str, Any]:
     }
 
 
-def _report_row_identity(row: Dict[str, Any]) -> Tuple[Optional[str], Optional[int]]:
+def _report_row_identity(row: dict[str, Any]) -> tuple[str | None, int | None]:
     return deal_id_from_report_row(row), safe_int(row.get("activity_id"))
 
 
 def merge_retry_results(
-    original_rows: List[Dict[str, Any]],
-    retry_rows: List[Dict[str, Any]],
-    retry_scope: Dict[str, Any],
-) -> List[Dict[str, Any]]:
+    original_rows: list[dict[str, Any]],
+    retry_rows: list[dict[str, Any]],
+    retry_scope: dict[str, Any],
+) -> list[dict[str, Any]]:
     """
     Повтор ошибок должен обновлять полный отчет, а не заменять его маленьким отчетом
     только по ошибочным строкам.
@@ -68,8 +68,8 @@ def merge_retry_results(
     full_deals = set(str(x) for x in (retry_scope.get("full_deals") or set()))
     retry_activity_ids_by_deal = retry_scope.get("activity_ids_by_deal") or {}
 
-    retry_by_deal: Dict[str, List[Dict[str, Any]]] = {}
-    retry_by_activity: Dict[Tuple[str, int], List[Dict[str, Any]]] = {}
+    retry_by_deal: dict[str, list[dict[str, Any]]] = {}
+    retry_by_activity: dict[tuple[str, int], list[dict[str, Any]]] = {}
     for row in retry_rows:
         deal_id, activity_id = _report_row_identity(row)
         if not deal_id:
@@ -78,9 +78,9 @@ def merge_retry_results(
         if activity_id is not None:
             retry_by_activity.setdefault((deal_id, activity_id), []).append(row)
 
-    merged: List[Dict[str, Any]] = []
+    merged: list[dict[str, Any]] = []
     inserted_full_deals: set[str] = set()
-    inserted_activities: set[Tuple[str, int]] = set()
+    inserted_activities: set[tuple[str, int]] = set()
     inserted_fallback_deals: set[str] = set()
 
     for row in original_rows:
@@ -104,7 +104,11 @@ def merge_retry_results(
                 if replacements:
                     merged.extend(replacements)
                 elif deal_id not in inserted_fallback_deals:
-                    fallback = [r for r in retry_by_deal.get(deal_id, []) if safe_int(r.get("activity_id")) is None]
+                    fallback = [
+                        r
+                        for r in retry_by_deal.get(deal_id, [])
+                        if safe_int(r.get("activity_id")) is None
+                    ]
                     merged.extend(fallback if fallback else [row])
                     inserted_fallback_deals.add(deal_id)
                 else:

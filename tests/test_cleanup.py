@@ -31,7 +31,9 @@ def test_cleanup_old_outputs_removes_old_reports_audio_and_transcripts(tmp_path)
     _touch_old(old_transcript)
     _touch_old(extra_audio)
 
-    counts = cleanup_old_outputs(tmp_path, keep_days=30, extra_audio_dirs=[tmp_path / "external_audio"])
+    counts = cleanup_old_outputs(
+        tmp_path, keep_days=30, extra_audio_dirs=[tmp_path / "external_audio"]
+    )
 
     assert counts == {"reports": 1, "audio": 2, "transcripts": 1, "total": 4}
     assert not old_report.exists()

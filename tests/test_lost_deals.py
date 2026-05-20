@@ -4,8 +4,8 @@ import pytest
 from openpyxl import load_workbook
 
 from pipelines.lost_deals import (
-    build_lost_deals_analysis,
     build_conversion_action_rows,
+    build_lost_deals_analysis,
     build_lost_reason_summary,
     classify_loss_reason,
     lost_filter_from_base,
@@ -58,9 +58,23 @@ def test_classify_loss_reason_default_when_no_reason_found():
 
 def test_lost_reason_summary_and_conversion_priorities():
     rows = [
-        {"loss_reason_category": "Цена/бюджет", "lost_amount": 100, "lost_lifetime_days": 2, "lost_manager_name": "А"},
-        {"loss_reason_category": "Цена/бюджет", "lost_amount": 200, "lost_lifetime_days": 4, "lost_manager_name": "А"},
-        {"loss_reason_category": "Нет связи с клиентом", "lost_amount": 50, "lost_manager_name": "Б"},
+        {
+            "loss_reason_category": "Цена/бюджет",
+            "lost_amount": 100,
+            "lost_lifetime_days": 2,
+            "lost_manager_name": "А",
+        },
+        {
+            "loss_reason_category": "Цена/бюджет",
+            "lost_amount": 200,
+            "lost_lifetime_days": 4,
+            "lost_manager_name": "А",
+        },
+        {
+            "loss_reason_category": "Нет связи с клиентом",
+            "lost_amount": 50,
+            "lost_manager_name": "Б",
+        },
     ]
 
     summary = build_lost_reason_summary(rows)
@@ -137,7 +151,9 @@ def test_flatten_results_writes_lost_deal_sheets(monkeypatch, tmp_path):
                 }
             ],
             "summary_rows": [{"loss_reason_category": "Цена/бюджет", "lost_deals_count": 1}],
-            "action_rows": [{"conversion_priority": "Критично", "loss_reason_category": "Цена/бюджет"}],
+            "action_rows": [
+                {"conversion_priority": "Критично", "loss_reason_category": "Цена/бюджет"}
+            ],
         },
     )
 

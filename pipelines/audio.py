@@ -1,31 +1,47 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import html
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from bitrix.api import Bitrix24API
 from bitrix.recordings import resolve_call_recording
 from download_resolver import download_best_effort
-from pipelines.stages import safe_int
-
 from logging_setup import get_logger
+from pipelines.stages import safe_int
 
 logger = get_logger(__name__)
 
 
-AUDIO_EXTENSIONS = {".mp3", ".wav", ".ogg", ".m4a", ".mp4", ".webm", ".aac", ".opus", ".flac", ".wma"}
+AUDIO_EXTENSIONS = {
+    ".mp3",
+    ".wav",
+    ".ogg",
+    ".m4a",
+    ".mp4",
+    ".webm",
+    ".aac",
+    ".opus",
+    ".flac",
+    ".wma",
+}
 
 
 def _looks_like_html_prefix(data: bytes) -> bool:
     if not data:
         return True
     head = data.lstrip()[:200].lower()
-    return head.startswith(b"<!doctype") or head.startswith(b"<html") or head.startswith(b"<head") or head.startswith(b"<body")
+    return (
+        head.startswith(b"<!doctype")
+        or head.startswith(b"<html")
+        or head.startswith(b"<head")
+        or head.startswith(b"<body")
+    )
 
 
-def validate_audio_file(path: Path) -> Optional[str]:
+def validate_audio_file(path: Path) -> str | None:
     """
     Быстрая валидация, чтобы не отправлять в ASR HTML/пустышки.
     """
@@ -42,19 +58,19 @@ def validate_audio_file(path: Path) -> Optional[str]:
     return None
 
 
-def parse_audio_source_dirs(values: Any) -> List[Path]:
-    out: List[Path] = []
+def parse_audio_source_dirs(values: Any) -> list[Path]:
+    out: list[Path] = []
     raw_values = values if isinstance(values, list) else ([values] if values else [])
     for raw in raw_values:
         for part in str(raw or "").split(";"):
-            text = part.strip().strip("\"")
+            text = part.strip().strip('"')
             if text:
                 out.append(Path(text))
     return out
 
 
-def build_audio_source_index(source_dirs: List[Path]) -> List[Path]:
-    files: List[Path] = []
+def build_audio_source_index(source_dirs: list[Path]) -> list[Path]:
+    files: list[Path] = []
     seen: set[str] = set()
     for source_dir in source_dirs:
         try:
@@ -76,13 +92,13 @@ def build_audio_source_index(source_dirs: List[Path]) -> List[Path]:
 
 
 def find_local_audio_source(
-    audio_index: List[Path],
+    audio_index: list[Path],
     deal_id: Any,
     activity_id: Any,
     disk_file_id: Any,
     call_id: Any,
     disk_file_name: Any = None,
-) -> Optional[Path]:
+) -> Path | None:
     if not audio_index:
         return None
 
@@ -97,7 +113,7 @@ def find_local_audio_source(
     strong_tokens = [t.lower() for t in strong_tokens if len(t.strip()) >= 3]
     weak_tokens = [t.lower() for t in weak_tokens if len(t.strip()) >= 4]
 
-    ranked: List[Tuple[int, float, Path]] = []
+    ranked: list[tuple[int, float, Path]] = []
     for path in audio_index:
         try:
             name = path.name.lower()
@@ -127,18 +143,20 @@ async def download_audio_for_call(
     *,
     api: Bitrix24API,
     args: Any,
-    row: Dict[str, Any],
+    row: dict[str, Any],
     deal_id: Any,
-    activity: Dict[str, Any],
+    activity: dict[str, Any],
     call_id: str,
-    audio_source_index: List[Path],
+    audio_source_index: list[Path],
     audio_dir: Path,
     ui_audio_dir: Path,
     ui_browser_session: Any = None,
     vibe: Any = None,
-) -> Tuple[Path, Any]:
+) -> tuple[Path, Any]:
     # resolve_call_recording должен быть асинхронным
-    rr = await resolve_call_recording(api, call_id=call_id, activity_id=safe_int(activity.get("ID")))
+    rr = await resolve_call_recording(
+        api, call_id=call_id, activity_id=safe_int(activity.get("ID"))
+    )
     row["disk_file_id"] = rr.disk_file_id
     row["recording_diagnostics"] = rr.diagnostics
     candidates = rr.candidates
@@ -157,7 +175,7 @@ async def download_audio_for_call(
     activity_id = activity.get("ID")
     disk_file_id = row.get("disk_file_id")
     out_path = audio_dir / f"deal{deal_id}_act{activity_id}_{disk_file_id}_{ts}{out_suffix}"
-    
+
     if local_source:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_source, out_path)
@@ -169,7 +187,11 @@ async def download_audio_for_call(
         )
     else:
         row["local_audio_source_used"] = False
-        if vibe is not None and row.get("disk_file_id") and bool(getattr(args, "vibecode_audio_download", True)):
+        if (
+            vibe is not None
+            and row.get("disk_file_id")
+            and bool(getattr(args, "vibecode_audio_download", True))
+        ):
             try:
                 # vibe пока синхронный
                 vibe.download_file(int(row["disk_file_id"]), out_path)
@@ -181,16 +203,22 @@ async def download_audio_for_call(
                 )
             except Exception as e:
                 row["vibecode_download_error"] = str(e)
-                logger.warning(f"[WARN] VibeCode file download не сработал, fallback на REST/UI: {e}")
-        
+                logger.warning(
+                    f"[WARN] VibeCode file download не сработал, fallback на REST/UI: {e}"
+                )
+
         if out_path.exists() and out_path.stat().st_size > 0:
             pass
         elif not candidates:
-            raise RuntimeError("Не нашёл URL кандидаты для скачивания (resolver не смог), и локальный аудиофайл тоже не найден.")
+            raise RuntimeError(
+                "Не нашёл URL кандидаты для скачивания (resolver не смог), и локальный аудиофайл тоже не найден."  # noqa: E501
+            )
         else:
             rest_timeout_sec = max(5, int(getattr(args, "rest_timeout_sec", 20) or 20))
-            # download_best_effort должен поддерживать асинхронность или вызываться через run_in_executor
-            dl = await download_best_effort(candidates=candidates, out_path=out_path, timeout_sec=rest_timeout_sec, retries=0)
+            # download_best_effort должен поддерживать асинхронность или вызываться через run_in_executor  # noqa: E501
+            dl = await download_best_effort(
+                candidates=candidates, out_path=out_path, timeout_sec=rest_timeout_sec, retries=0
+            )
             if not dl.ok or not dl.path:
                 row["download_attempts"] = [a.__dict__ for a in dl.attempts]
                 if args.ui_download:
@@ -198,11 +226,13 @@ async def download_audio_for_call(
                         from ui_audio_downloader import UiBrowserSession
 
                         ui_res = None
-                        ui_errors: List[str] = []
+                        ui_errors: list[str] = []
                         mode = str(getattr(args, "ui_download_mode", "auto") or "auto")
                         browser = str(getattr(args, "ui_browser", "chrome"))
                         ui_timeout_sec = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
-                        browser_profile_directory = str(getattr(args, "browser_profile_directory", "Default") or "Default")
+                        browser_profile_directory = str(
+                            getattr(args, "browser_profile_directory", "Default") or "Default"
+                        )
                         if ui_browser_session is None:
                             ui_browser_session = UiBrowserSession(
                                 downloads_dir=ui_audio_dir,
@@ -212,8 +242,14 @@ async def download_audio_for_call(
                             )
 
                         if mode in {"direct", "auto"}:
-                            for candidate in [html.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]:
-                                logger.info(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}")
+                            for candidate in [
+                                html.unescape(c).strip()
+                                for c in candidates
+                                if isinstance(c, str) and c.startswith("http")
+                            ]:
+                                logger.info(
+                                    f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}"  # noqa: E501
+                                )
                                 ui_res = ui_browser_session.download_url(
                                     candidate,
                                     timeout_sec=ui_timeout_sec,
@@ -242,16 +278,21 @@ async def download_audio_for_call(
 
                         row["ui_download_errors"] = ui_errors
                         if ui_res is None or not ui_res.ok or not ui_res.path:
-                            raise RuntimeError("; ".join(ui_errors) or (ui_res.error if ui_res else "UI download failed"))
+                            raise RuntimeError(
+                                "; ".join(ui_errors)
+                                or (ui_res.error if ui_res else "UI download failed")
+                            )
                         out_path.parent.mkdir(parents=True, exist_ok=True)
                         out_path.write_bytes(Path(ui_res.path).read_bytes())
                         row["ui_download_used"] = True
                         row["ui_download_path"] = str(ui_res.path)
                     except Exception as e:
-                        raise RuntimeError(f"Не удалось скачать аудио (REST+UI): {dl.error}; UI: {e}")
+                        raise RuntimeError(
+                            f"Не удалось скачать аудио (REST+UI): {dl.error}; UI: {e}"
+                        ) from e
                 else:
                     raise RuntimeError(f"Не удалось скачать аудио: {dl.error}")
-    
+
     row["audio_path"] = str(out_path)
     row["audio_size_bytes"] = int(out_path.stat().st_size) if out_path.exists() else None
     bad = validate_audio_file(out_path)

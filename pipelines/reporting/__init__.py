@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pipelines.reporting import core as _core
 from pipelines.reporting import rows as _rows
@@ -45,11 +45,11 @@ def publish_latest_report(json_path: Path, xlsx_path: Path) -> None:
 
 
 def flatten_results(
-    rows: List[Dict[str, Any]],
-    manager_summary: List[Dict[str, Any]],
-    manager_summary_cmp: Optional[List[Dict[str, Any]]] = None,
-    stage_map: Optional[Dict[str, str]] = None,
-    lost_deals_analysis: Optional[Dict[str, Any]] = None,
+    rows: list[dict[str, Any]],
+    manager_summary: list[dict[str, Any]],
+    manager_summary_cmp: list[dict[str, Any]] | None = None,
+    stage_map: dict[str, str] | None = None,
+    lost_deals_analysis: dict[str, Any] | None = None,
 ) -> Path:
     _sync_paths()
     return _core.flatten_results(

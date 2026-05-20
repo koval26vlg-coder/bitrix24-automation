@@ -1,12 +1,15 @@
 from types import SimpleNamespace
+
 import pytest
+
+from pipelines.factories import create_bitnewton_asr
 from pipelines.runtime import (
     AudioRuntime,
     build_processing_context,
     prepare_audio_runtime,
     resolve_deal_scope,
 )
-from pipelines.factories import create_bitnewton_asr
+
 
 def test_create_bitnewton_asr_requires_enabled_flag():
     args = SimpleNamespace(use_bitnewton=False, bitnewton_flow=False)

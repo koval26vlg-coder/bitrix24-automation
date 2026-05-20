@@ -1,6 +1,7 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import asyncio
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from pipelines.calls import (
     compute_discipline_metrics,
@@ -12,7 +13,11 @@ from pipelines.calls import (
 from pipelines.deals import deal_get, deal_url_from_id
 from pipelines.evaluation import compute_deal_quality
 from pipelines.processing.calls import process_call, process_no_calls_deal
-from pipelines.processing.context import DealProcessingResult, ProcessingContext, ProcessingRunResult
+from pipelines.processing.context import (
+    DealProcessingResult,
+    ProcessingContext,
+    ProcessingRunResult,
+)
 from pipelines.stages import safe_int
 
 
@@ -21,26 +26,32 @@ def _is_missing_bitrix_deal_error(error: Exception) -> bool:
     return "crm.deal.get" in text and "not found" in text
 
 
-async def _list_deal_call_activities(ctx: ProcessingContext, deal_id: str) -> List[Dict[str, Any]]:
+async def _list_deal_call_activities(ctx: ProcessingContext, deal_id: str) -> list[dict[str, Any]]:
     if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_read", True)):
         try:
             # vibe пока синхронный
-            acts: List[Dict[str, Any]] = ctx.vibe.list_deal_call_activities(deal_id)
+            acts: list[dict[str, Any]] = ctx.vibe.list_deal_call_activities(deal_id)
             print(f"[VIBECODE] Звонки сделки получены через VibeCode: {len(acts)}", flush=True)
             return acts
         except Exception as e:
-            print(f"[WARN] VibeCode activities/search не сработал, fallback на Bitrix REST: {e}", flush=True)
+            print(
+                f"[WARN] VibeCode activities/search не сработал, fallback на Bitrix REST: {e}",
+                flush=True,
+            )
 
     return await list_deal_call_activities(ctx.api, deal_id)
 
 
-async def _deal_get(ctx: ProcessingContext, deal_id: str) -> Dict[str, Any]:
+async def _deal_get(ctx: ProcessingContext, deal_id: str) -> dict[str, Any]:
     if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_read", True)):
         try:
-            res: Dict[str, Any] = ctx.vibe.get_deal(deal_id)
+            res: dict[str, Any] = ctx.vibe.get_deal(deal_id)
             return res
         except Exception as e:
-            print(f"[WARN] VibeCode deals/{deal_id} не сработал, fallback на Bitrix REST: {e}", flush=True)
+            print(
+                f"[WARN] VibeCode deals/{deal_id} не сработал, fallback на Bitrix REST: {e}",
+                flush=True,
+            )
 
     return await deal_get(ctx.api, deal_id)
 
@@ -50,10 +61,10 @@ def _build_missing_deal_row(
     ctx: ProcessingContext,
     deal_id: str,
     error: Exception,
-    call_center_acts: List[Dict[str, Any]],
+    call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int,
-) -> Dict[str, Any]:
-    row: Dict[str, Any] = {
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "deal_id": deal_id,
         "deal_url": deal_url_from_id(ctx.args.domain, deal_id),
         "stage_id": None,
@@ -62,7 +73,9 @@ def _build_missing_deal_row(
         "kpi_profile": (ctx.kpi.get("profile") or {}).get("name"),
         "kpi_version": (ctx.kpi.get("profile") or {}).get("version"),
         "kpi_profile_cmp": (ctx.kpi_cmp.get("profile") or {}).get("name") if ctx.kpi_cmp else None,
-        "kpi_version_cmp": (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None,
+        "kpi_version_cmp": (
+            (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None
+        ),
         "activity_id": None,
         "origin_id": None,
         "subject": "Сделка не найдена",
@@ -84,7 +97,7 @@ def _build_missing_deal_row(
         "crm_work_score": 0.0,
         "call_quality_conclusion": "Оценить разговор невозможно: сделка не найдена или недоступна.",
         "conversation_meaning": "Нет данных: карточка сделки недоступна через Bitrix24 API.",
-        "recommendations": "Проверить, удалена ли сделка, перемещена ли она в другую воронку, и есть ли доступ у webhook.",
+        "recommendations": "Проверить, удалена ли сделка, перемещена ли она в другую воронку, и есть ли доступ у webhook.",  # noqa: E501
     }
     if ctx.kpi_cmp is not None:
         row["overall_score_cmp"] = 0.0
@@ -98,9 +111,9 @@ async def process_deal(
     deal_id: str,
     deal_index: int,
     total_deals: int,
-    retry_scope: Optional[Dict[str, Any]],
-    user_cache: Dict[int, Dict[str, Any]],
-    department_cache: Dict[int, Dict[str, Any]],
+    retry_scope: dict[str, Any] | None,
+    user_cache: dict[int, dict[str, Any]],
+    department_cache: dict[int, dict[str, Any]],
     base_ok: int = 0,
     base_err: int = 0,
 ) -> DealProcessingResult:
@@ -132,7 +145,7 @@ async def process_deal(
 
     if ctx.args.include_call_center:
         acts = acts_raw
-        call_center_acts: List[Dict[str, Any]] = []
+        call_center_acts: list[dict[str, Any]] = []
     else:
         acts, call_center_acts = await split_call_center_operator_activities(
             ctx.api,
@@ -144,14 +157,14 @@ async def process_deal(
     print(f"Звонков (crm.activity): {len(acts_raw)}")
     if call_center_acts:
         print(
-            f"[SKIP] Звонков операторов Call-центра: {len(call_center_acts)}; к анализу: {len(acts)}",
+            f"[SKIP] Звонков операторов Call-центра: {len(call_center_acts)}; к анализу: {len(acts)}",  # noqa: E501
             flush=True,
         )
 
     min_call_duration_sec: int = max(0, int(getattr(ctx.args, "min_call_duration_sec", 15) or 0))
-    skipped_short_acts: List[Dict[str, Any]] = []
+    skipped_short_acts: list[dict[str, Any]] = []
     if min_call_duration_sec > 0:
-        long_acts: List[Dict[str, Any]] = []
+        long_acts: list[dict[str, Any]] = []
         for act in acts:
             if guess_duration_sec(act) < min_call_duration_sec:
                 skipped_short_acts.append(act)
@@ -169,11 +182,16 @@ async def process_deal(
         retry_ids: set[int] = retry_scope.get("activity_ids_by_deal", {}).get(str(deal_id), set())
         full_deal_retry: bool = str(deal_id) in retry_scope.get("full_deals", set())
         if full_deal_retry:
-            print("[RETRY] Ошибка была на уровне сделки, перепроверяю все звонки этой сделки", flush=True)
+            print(
+                "[RETRY] Ошибка была на уровне сделки, перепроверяю все звонки этой сделки",
+                flush=True,
+            )
         else:
             before_retry = len(acts)
             acts = [activity for activity in acts if safe_int(activity.get("ID")) in retry_ids]
-            print(f"[RETRY] К повторной обработке звонков: {len(acts)} из {before_retry}", flush=True)
+            print(
+                f"[RETRY] К повторной обработке звонков: {len(acts)} из {before_retry}", flush=True
+            )
 
     max_calls_per_deal: int = max(0, int(getattr(ctx.args, "max_calls_per_deal", 0) or 0))
     if max_calls_per_deal and len(acts) > max_calls_per_deal:
@@ -185,7 +203,7 @@ async def process_deal(
             flush=True,
         )
 
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     ok = 0
     err = 0
     try:
@@ -253,14 +271,14 @@ async def process_deal(
 async def process_deals(
     *,
     ctx: ProcessingContext,
-    deal_ids: List[str],
-    retry_scope: Optional[Dict[str, Any]],
+    deal_ids: list[str],
+    retry_scope: dict[str, Any] | None,
 ) -> ProcessingRunResult:
-    rows: List[Dict[str, Any]] = []
+    rows: list[dict[str, Any]] = []
     ok = 0
     err = 0
-    user_cache: Dict[int, Dict[str, Any]] = {}
-    department_cache: Dict[int, Dict[str, Any]] = {}
+    user_cache: dict[int, dict[str, Any]] = {}
+    department_cache: dict[int, dict[str, Any]] = {}
 
     semaphore = asyncio.Semaphore(5)
 
@@ -283,7 +301,7 @@ async def process_deals(
     for deal_index, deal_id in enumerate(deal_ids, 1):
         tasks.append(_process_one(deal_id, deal_index))
 
-    results: List[DealProcessingResult] = await asyncio.gather(*tasks)
+    results: list[DealProcessingResult] = await asyncio.gather(*tasks)
 
     for deal_result in results:
         rows.extend(deal_result.rows)

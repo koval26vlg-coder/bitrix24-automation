@@ -5,17 +5,16 @@ import subprocess
 import sys
 from datetime import date, timedelta
 from pathlib import Path
-from typing import Optional
 
-import streamlit as st
 import pandas as pd
+import streamlit as st
 from dotenv import load_dotenv
+
 from bitrix24_api import Bitrix24API
 from pipelines.cleanup import cleanup_old_outputs
 from pipelines.reporting import kpi_profile_display
 from pipelines.stages import DEFAULT_STAGE_NAMES
 from pipelines.token_status import current_bitnewton_token_status
-
 
 ROOT = Path(__file__).resolve().parent
 REPORTS_DIR = ROOT / "reports"
@@ -68,7 +67,9 @@ def list_browser_profiles(browser_name: str) -> list[dict]:
     profiles: list[dict] = []
     try:
         data = json.loads(local_state.read_text(encoding="utf-8"))
-        cache = ((data.get("profile") or {}).get("info_cache") or {}) if isinstance(data, dict) else {}
+        cache = (
+            ((data.get("profile") or {}).get("info_cache") or {}) if isinstance(data, dict) else {}
+        )
         if isinstance(cache, dict):
             for directory, meta in cache.items():
                 if not (user_data / directory).exists():
@@ -88,7 +89,9 @@ def list_browser_profiles(browser_name: str) -> list[dict]:
     if not profiles:
         profiles.append({"directory": "Default", "label": "Default"})
 
-    profiles.sort(key=lambda p: (0 if p.get("directory") == "Default" else 1, str(p.get("label") or "")))
+    profiles.sort(
+        key=lambda p: (0 if p.get("directory") == "Default" else 1, str(p.get("label") or ""))
+    )
     return profiles
 
 
@@ -129,7 +132,7 @@ def fetch_deal_categories() -> list[dict]:
         run_async(api.aclose())
 
 
-def stage_entity_id(category_id: Optional[int]) -> str:
+def stage_entity_id(category_id: int | None) -> str:
     if category_id is None:
         return "DEAL_STAGE"
     try:
@@ -139,7 +142,7 @@ def stage_entity_id(category_id: Optional[int]) -> str:
     return "DEAL_STAGE" if cid == 0 else f"DEAL_STAGE_{cid}"
 
 
-def fallback_stage_rows(category_ids: tuple[Optional[int], ...]) -> list[dict]:
+def fallback_stage_rows(category_ids: tuple[int | None, ...]) -> list[dict]:
     allowed_prefixes: set[str] = set()
     include_plain = False
     for category_id in category_ids:
@@ -167,7 +170,7 @@ def fallback_stage_rows(category_ids: tuple[Optional[int], ...]) -> list[dict]:
 
 
 @st.cache_data(ttl=300)
-def fetch_deal_stages(category_ids: tuple[Optional[int], ...]) -> list[dict]:
+def fetch_deal_stages(category_ids: tuple[int | None, ...]) -> list[dict]:
     api = Bitrix24API()
     rows: list[dict] = []
     seen: set[str] = set()
@@ -175,7 +178,10 @@ def fetch_deal_stages(category_ids: tuple[Optional[int], ...]) -> list[dict]:
         for category_id in category_ids:
             entity_id = stage_entity_id(category_id)
             res = run_async(
-                api.call("crm.status.list", {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}})
+                api.call(
+                    "crm.status.list",
+                    {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}},
+                )
             )
             for row in res.get("result") or []:
                 stage_id = str(row.get("STATUS_ID") or "").strip()
@@ -220,14 +226,18 @@ def fetch_lead_categories_new() -> list[dict]:
     return sorted(out, key=lambda r: str(r.get("name") or ""))
 
 
-def latest_report_file(pattern: str) -> Optional[Path]:
+def latest_report_file(pattern: str) -> Path | None:
     files = sorted(REPORTS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime, reverse=True)
     return files[0] if files else None
 
 
 def available_report_json_files() -> list[Path]:
     files: list[Path] = []
-    for pattern in ("latest_bitnewton_report.json", "bitnewton_sync_report_*.json", "bitnewton_reevaluated_report_*.json"):
+    for pattern in (
+        "latest_bitnewton_report.json",
+        "bitnewton_sync_report_*.json",
+        "bitnewton_reevaluated_report_*.json",
+    ):
         files.extend(REPORTS_DIR.glob(pattern))
     unique = {str(p.resolve()): p for p in files}
     return sorted(unique.values(), key=lambda p: p.stat().st_mtime, reverse=True)
@@ -254,7 +264,9 @@ def extract_top_delta(json_path: Path, limit: int = 5) -> list[dict]:
 
 
 @st.cache_data(ttl=60, show_spinner=False)
-def read_report_sheet(path_str: str, modified_ts: float, sheet_name: str, nrows: int = 30) -> pd.DataFrame:
+def read_report_sheet(
+    path_str: str, modified_ts: float, sheet_name: str, nrows: int = 30
+) -> pd.DataFrame:
     path = Path(path_str)
     if not path.exists():
         return pd.DataFrame()
@@ -266,7 +278,11 @@ def read_report_sheet(path_str: str, modified_ts: float, sheet_name: str, nrows:
 
 
 def summary_value(summary_df: pd.DataFrame, metric: str) -> str:
-    if summary_df.empty or "Показатель" not in summary_df.columns or "Значение" not in summary_df.columns:
+    if (
+        summary_df.empty
+        or "Показатель" not in summary_df.columns
+        or "Значение" not in summary_df.columns
+    ):
         return ""
     rows = summary_df[summary_df["Показатель"].astype(str) == metric]
     if rows.empty:
@@ -306,11 +322,13 @@ retention_cleanup = run_retention_cleanup()
 st.title("Bitrix24 — расшифровка звонков по выборке сделок")
 
 st.caption(
-    "Интерфейс управляет пайплайном: звонок → аудио → Bit.Newton → запись в Bitrix через telephony.call.attachtranscription → отчеты (JSON/Excel)."
+    "Интерфейс управляет пайплайном: звонок → аудио → Bit.Newton → запись в Bitrix через telephony.call.attachtranscription → отчеты (JSON/Excel)."  # noqa: E501
 )
 
 with st.sidebar:
-    removed_total = int(retention_cleanup.get("total") or 0) if isinstance(retention_cleanup, dict) else 0
+    removed_total = (
+        int(retention_cleanup.get("total") or 0) if isinstance(retention_cleanup, dict) else 0
+    )
     if removed_total:
         st.caption(
             "Автоочистка 30 дней: "
@@ -320,7 +338,9 @@ with st.sidebar:
             f"расшифровки {retention_cleanup.get('transcripts', 0)})."
         )
     else:
-        st.caption("Автоочистка: отчеты, аудио и расшифровки старше 30 дней удаляются автоматически.")
+        st.caption(
+            "Автоочистка: отчеты, аудио и расшифровки старше 30 дней удаляются автоматически."
+        )
 
     token_status = current_bitnewton_token_status()
     days_left = token_status.get("days_left")
@@ -334,7 +354,9 @@ with st.sidebar:
     selected_stage_ids: list[str] = []
 
     if mode == "Одна сделка по URL":
-        deal_url = st.text_input("URL сделки", value="https://online-kassa.bitrix24.ru/crm/deal/details/104291/")
+        deal_url = st.text_input(
+            "URL сделки", value="https://online-kassa.bitrix24.ru/crm/deal/details/104291/"
+        )
     else:
         st.subheader("Основные")
         title_like = st.text_input("Название (содержит)", value="")
@@ -347,12 +369,16 @@ with st.sidebar:
             st.warning(f"Не удалось загрузить категории лида (NEW): {e}")
 
         if lead_categories:
-            lead_category_names = {str(c["id"]): str(c.get("name") or c["id"]) for c in lead_categories}
+            lead_category_names = {
+                str(c["id"]): str(c.get("name") or c["id"]) for c in lead_categories
+            }
             selected_lead_category_ids = st.multiselect(
                 "Категория лида (NEW)",
                 options=[str(c["id"]) for c in lead_categories],
                 default=[],
-                format_func=lambda category_id: lead_category_names.get(str(category_id), str(category_id)),
+                format_func=lambda category_id: lead_category_names.get(
+                    str(category_id), str(category_id)
+                ),
                 help="Если ничего не выбрано, категория лида не ограничивает выборку.",
             )
 
@@ -361,11 +387,17 @@ with st.sidebar:
             cats = fetch_deal_categories()
         except Exception as e:
             st.warning(f"Не удалось загрузить воронки: {e}")
-        cat_options = {c.get("NAME", str(c.get("ID"))): int(c.get("ID")) for c in cats if c.get("ID")}
-        selected_cat_name = st.selectbox("Воронка (CATEGORY_ID)", options=["(любая)"] + list(cat_options.keys()), index=0)
-        selected_cat_id = cat_options.get(selected_cat_name) if selected_cat_name != "(любая)" else None
+        cat_options = {
+            c.get("NAME", str(c.get("ID"))): int(c.get("ID")) for c in cats if c.get("ID")
+        }
+        selected_cat_name = st.selectbox(
+            "Воронка (CATEGORY_ID)", options=["(любая)"] + list(cat_options.keys()), index=0
+        )
+        selected_cat_id = (
+            cat_options.get(selected_cat_name) if selected_cat_name != "(любая)" else None
+        )
 
-        stage_category_ids: tuple[Optional[int], ...]
+        stage_category_ids: tuple[int | None, ...]
         if selected_cat_id is not None:
             stage_category_ids = (selected_cat_id,)
         else:
@@ -393,7 +425,14 @@ with st.sidebar:
         with col1:
             date_preset = st.selectbox(
                 "Дата создания",
-                ["Не учитывать дату", "Произвольно", "Сегодня", "Вчера", "Последние 7 дней", "Последние 30 дней"],
+                [
+                    "Не учитывать дату",
+                    "Произвольно",
+                    "Сегодня",
+                    "Вчера",
+                    "Последние 7 дней",
+                    "Последние 30 дней",
+                ],
                 index=0,
             )
         with col2:
@@ -412,7 +451,9 @@ with st.sidebar:
 
         if users:
             fio_to_id = {user_fio(u): str(u.get("ID")) for u in users if u.get("ID")}
-            selected = st.multiselect("Ответственный (по ФИО)", options=list(fio_to_id.keys()), default=[])
+            selected = st.multiselect(
+                "Ответственный (по ФИО)", options=list(fio_to_id.keys()), default=[]
+            )
             assigned_by = ",".join([fio_to_id[name] for name in selected])
         else:
             assigned_by = st.text_input("ID менеджеров (через запятую)", value="")
@@ -420,14 +461,16 @@ with st.sidebar:
     st.divider()
     st.header("Опции")
     limit = st.number_input("Лимит сделок (max)", min_value=1, max_value=2000, value=200, step=10)
-    max_calls_per_deal = st.number_input("Макс. звонков на сделку (0 = все)", min_value=0, max_value=50, value=0, step=1)
+    max_calls_per_deal = st.number_input(
+        "Макс. звонков на сделку (0 = все)", min_value=0, max_value=50, value=0, step=1
+    )
     min_call_duration_sec = st.number_input(
         "Не анализировать звонки короче, сек.",
         min_value=0,
         max_value=120,
         value=15,
         step=5,
-        help="Короткие 1–5 секундные попытки дозвона обычно не имеют записи и не являются разговором с клиентом.",
+        help="Короткие 1–5 секундные попытки дозвона обычно не имеют записи и не являются разговором с клиентом.",  # noqa: E501
     )
     exclude_call_center = st.checkbox("Не учитывать звонки операторов Call-центра", value=True)
     dry_run = st.checkbox(
@@ -442,7 +485,7 @@ with st.sidebar:
         "Не писать во внешние системы",
         value=False,
         disabled=dry_run,
-        help="Блокирует attachTranscription, VibeCode calls/transcription и timeline-logs, но не запрещает новую ASR.",
+        help="Блокирует attachTranscription, VibeCode calls/transcription и timeline-logs, но не запрещает новую ASR.",  # noqa: E501
     )
     no_external_write = bool(dry_run or no_external_write_raw)
     lost_deals_analysis = st.checkbox("Добавить анализ проигранных сделок", value=True)
@@ -453,7 +496,7 @@ with st.sidebar:
         value=500,
         step=50,
         disabled=not lost_deals_analysis,
-        help="Для листов Excel: проигранные сделки, типичные причины отказов и инструменты роста конверсии.",
+        help="Для листов Excel: проигранные сделки, типичные причины отказов и инструменты роста конверсии.",  # noqa: E501
     )
     st.caption("Для Bit.Newton нужен `BITNEWTON_TOKEN` в `.env`.")
 
@@ -463,7 +506,7 @@ with st.sidebar:
     use_vibecode = st.checkbox(
         "Использовать VibeCode API",
         value=vibecode_key_present,
-        help="Ключ берется из VIBECODE_API_KEY в .env. Если VibeCode не сработает, пайплайн вернется к обычному Bitrix REST.",
+        help="Ключ берется из VIBECODE_API_KEY в .env. Если VibeCode не сработает, пайплайн вернется к обычному Bitrix REST.",  # noqa: E501
     )
     if not vibecode_key_present:
         st.caption("VIBECODE_API_KEY не найден в `.env`; VibeCode будет пропущен.")
@@ -487,7 +530,7 @@ with st.sidebar:
         "Прикреплять расшифровку через VibeCode",
         value=False,
         disabled=not use_vibecode or no_external_write,
-        help="Сейчас оставлено выключенным: в live-проверке endpoint VibeCode вернул 404, рабочий fallback — старый Bitrix REST attach.",
+        help="Сейчас оставлено выключенным: в live-проверке endpoint VibeCode вернул 404, рабочий fallback — старый Bitrix REST attach.",  # noqa: E501
     )
     vibecode_timeline_log = st.checkbox(
         "Записывать AI-анализ в таймлайн сделки",
@@ -497,40 +540,71 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Bit.Newton (опционально)")
-    use_bitnewton = st.checkbox("Использовать Bit.Newton для расшифровки", value=not dry_run, disabled=dry_run)
+    use_bitnewton = st.checkbox(
+        "Использовать Bit.Newton для расшифровки", value=not dry_run, disabled=dry_run
+    )
     if dry_run:
         use_bitnewton = False
-    diarize = st.checkbox("Разделение по спикерам (diarize)", value=False, disabled=not use_bitnewton)
+    diarize = st.checkbox(
+        "Разделение по спикерам (diarize)", value=False, disabled=not use_bitnewton
+    )
     reuse_transcripts = st.checkbox(
         "Использовать уже сохранённые расшифровки",
         value=True,
         disabled=(not use_bitnewton and not dry_run),
-        help="Если звонок уже расшифровывался, отчет пересобирается из сохраненного текста без повторного скачивания аудио и отправки в Bit.Newton.",
+        help="Если звонок уже расшифровывался, отчет пересобирается из сохраненного текста без повторного скачивания аудио и отправки в Bit.Newton.",  # noqa: E501
     )
-    rest_timeout_sec = st.number_input("Таймаут REST-скачивания, сек.", min_value=5, max_value=120, value=20, step=5, disabled=not use_bitnewton)
-    download_audio = st.checkbox("Сохранять аудио в reports/audio/ (если получится скачать)", value=False, disabled=not use_bitnewton)
+    rest_timeout_sec = st.number_input(
+        "Таймаут REST-скачивания, сек.",
+        min_value=5,
+        max_value=120,
+        value=20,
+        step=5,
+        disabled=not use_bitnewton,
+    )
+    download_audio = st.checkbox(
+        "Сохранять аудио в reports/audio/ (если получится скачать)",
+        value=False,
+        disabled=not use_bitnewton,
+    )
     audio_source_dir = st.text_input(
         "Локальная папка с аудиозаписями",
         value="",
         disabled=not use_bitnewton,
-        help="Если записи уже доступны на диске, укажи папку. Система сначала ищет аудио там по ID файла/активности/звонка, а REST/UI использует только если файл не найден.",
+        help="Если записи уже доступны на диске, укажи папку. Система сначала ищет аудио там по ID файла/активности/звонка, а REST/UI использует только если файл не найден.",  # noqa: E501
     )
-    bitnewton_flow = st.checkbox("Только Bit.Newton: call → audio → ASR → attach", value=True, disabled=not use_bitnewton)
+    bitnewton_flow = st.checkbox(
+        "Только Bit.Newton: call → audio → ASR → attach", value=True, disabled=not use_bitnewton
+    )
     ui_download = st.checkbox(
         "UI fallback: скачивать через браузер, если REST не смог",
         value=False,
         disabled=not use_bitnewton,
-        help="После выдачи доступа к папке записей обычный режим должен работать через Bitrix Disk/API. Включай браузерный fallback только для отдельных проблемных звонков.",
+        help="После выдачи доступа к папке записей обычный режим должен работать через Bitrix Disk/API. Включай браузерный fallback только для отдельных проблемных звонков.",  # noqa: E501
     )
-    ui_timeout_sec = st.number_input("Таймаут UI fallback, сек.", min_value=5, max_value=120, value=20, step=5, disabled=not use_bitnewton or not ui_download)
+    ui_timeout_sec = st.number_input(
+        "Таймаут UI fallback, сек.",
+        min_value=5,
+        max_value=120,
+        value=20,
+        step=5,
+        disabled=not use_bitnewton or not ui_download,
+    )
     fetch_bitrix_card_transcript = st.checkbox(
         "Глубокая проверка: читать расшифровку из карточки Bitrix",
         value=False,
         disabled=not use_bitnewton or not ui_download,
-        help="Медленный режим: открывает карточку звонка через браузер и пробует нажать кнопку расшифровки. Включать точечно для аудита, не для массового запуска.",
+        help="Медленный режим: открывает карточку звонка через браузер и пробует нажать кнопку расшифровки. Включать точечно для аудита, не для массового запуска.",  # noqa: E501
     )
-    ui_browser = st.selectbox("Браузер для UI fallback", options=["edge", "chrome"], index=0, disabled=not use_bitnewton or not ui_download)
-    ui_download_dir = st.text_input("Папка UI-скачивания", value="reports/audio_ui", disabled=not use_bitnewton)
+    ui_browser = st.selectbox(
+        "Браузер для UI fallback",
+        options=["edge", "chrome"],
+        index=0,
+        disabled=not use_bitnewton or not ui_download,
+    )
+    ui_download_dir = st.text_input(
+        "Папка UI-скачивания", value="reports/audio_ui", disabled=not use_bitnewton
+    )
     chrome_profile_mode = st.selectbox(
         "Профиль браузера для UI-скачивания",
         options=["system", "custom"],
@@ -552,7 +626,9 @@ with st.sidebar:
             help="Выбери тот профиль, где Bitrix уже открыт под нужным пользователем.",
         )
     if chrome_profile_mode == "custom":
-        chrome_profile_dir = st.text_input("Путь к custom Chrome profile", value="", disabled=not use_bitnewton or not ui_download)
+        chrome_profile_dir = st.text_input(
+            "Путь к custom Chrome profile", value="", disabled=not use_bitnewton or not ui_download
+        )
         browser_profile_directory = st.text_input(
             "Папка профиля внутри custom profile",
             value="Default",
@@ -568,7 +644,7 @@ with st.sidebar:
             options=KPI_FILES,
             index=0,
             format_func=kpi_file_label,
-            help="Профиль определяет веса оценки звонка, CRM-дисциплины, SLA и качества проработки клиента.",
+            help="Профиль определяет веса оценки звонка, CRM-дисциплины, SLA и качества проработки клиента.",  # noqa: E501
         )
         st.caption(kpi_file_description(base_kpi))
         use_compare_kpi = st.checkbox("Сравнить со вторым KPI профилем", value=False)
@@ -599,7 +675,7 @@ run_mode = st.radio(
     index=0,
 )
 report_files = available_report_json_files()
-selected_report: Optional[Path] = None
+selected_report: Path | None = None
 if run_mode != "Обычная обработка":
     if report_files:
         selected_report = st.selectbox(
@@ -607,14 +683,18 @@ if run_mode != "Обычная обработка":
             options=report_files,
             index=0,
             format_func=report_file_label,
-            help="Берется старый JSON из reports/. Excel для этих режимов не подходит, нужен именно JSON.",
+            help="Берется старый JSON из reports/. Excel для этих режимов не подходит, нужен именно JSON.",  # noqa: E501
         )
     else:
         st.warning("В reports/ не найдено JSON-отчетов для повторного режима.")
     if run_mode == "Повторить только ошибки из отчета":
-        st.caption("Будут заново обработаны только строки с `Ошибка`; после этого пересоберется полный отчет со всеми исходными строками.")
+        st.caption(
+            "Будут заново обработаны только строки с `Ошибка`; после этого пересоберется полный отчет со всеми исходными строками."  # noqa: E501
+        )
     else:
-        st.caption("Аудио не скачивается и Bit.Newton не вызывается: пересчитывается аналитика по сохраненным расшифровкам.")
+        st.caption(
+            "Аудио не скачивается и Bit.Newton не вызывается: пересчитывается аналитика по сохраненным расшифровкам."  # noqa: E501
+        )
 
 run = st.button("Старт", type="primary")
 
@@ -642,7 +722,9 @@ if run:
             flt["CATEGORY_ID"] = selected_cat_id
 
         if selected_stage_ids:
-            flt["STAGE_ID"] = selected_stage_ids[0] if len(selected_stage_ids) == 1 else selected_stage_ids
+            flt["STAGE_ID"] = (
+                selected_stage_ids[0] if len(selected_stage_ids) == 1 else selected_stage_ids
+            )
 
         if selected_lead_category_ids:
             flt[LEAD_CATEGORY_NEW_FIELD] = (
@@ -678,7 +760,9 @@ if run:
 
     if run_mode != "Переоценить отчет без повторной расшифровки":
         if not use_bitnewton and not dry_run:
-            st.error("Для обычной обработки и повтора ошибок нужен Bit.Newton. Для работы без Bit.Newton выбери режим переоценки.")
+            st.error(
+                "Для обычной обработки и повтора ошибок нужен Bit.Newton. Для работы без Bit.Newton выбери режим переоценки."  # noqa: E501
+            )
             st.stop()
         if dry_run:
             args += ["--dry-run"]
@@ -690,9 +774,11 @@ if run:
             args += ["--use-vibecode"]
             args += ["--vibecode-read" if vibecode_read else "--no-vibecode-read"]
             args += [
-                "--vibecode-audio-download"
-                if vibecode_audio_download
-                else "--no-vibecode-audio-download"
+                (
+                    "--vibecode-audio-download"
+                    if vibecode_audio_download
+                    else "--no-vibecode-audio-download"
+                )
             ]
             if vibecode_asr_fallback:
                 args += ["--vibecode-asr-fallback"]
@@ -752,8 +838,16 @@ if run:
 st.divider()
 st.subheader("Последний отчёт")
 json_reports = available_report_json_files()
-last_json = LATEST_JSON_REPORT if LATEST_JSON_REPORT.exists() else (json_reports[0] if json_reports else None)
-last_xlsx = LATEST_XLSX_REPORT if LATEST_XLSX_REPORT.exists() else latest_report_file("bitnewton_sync_report_*.xlsx")
+last_json = (
+    LATEST_JSON_REPORT
+    if LATEST_JSON_REPORT.exists()
+    else (json_reports[0] if json_reports else None)
+)
+last_xlsx = (
+    LATEST_XLSX_REPORT
+    if LATEST_XLSX_REPORT.exists()
+    else latest_report_file("bitnewton_sync_report_*.xlsx")
+)
 
 if not last_json and not last_xlsx:
     st.info("Отчёты пока не найдены. Запусти пайплайн, и здесь появится быстрый доступ.")
@@ -788,7 +882,9 @@ else:
         summary_df = read_report_sheet(str(last_xlsx), modified_ts, "Итоги", nrows=60)
         control_df = read_report_sheet(str(last_xlsx), modified_ts, "Контроль качества", nrows=25)
         coaching_df = read_report_sheet(str(last_xlsx), modified_ts, "План обучения", nrows=25)
-        manager_cards_df = read_report_sheet(str(last_xlsx), modified_ts, "Карточки менеджеров", nrows=50)
+        manager_cards_df = read_report_sheet(
+            str(last_xlsx), modified_ts, "Карточки менеджеров", nrows=50
+        )
 
         if summary_df.empty and control_df.empty and coaching_df.empty:
             st.info("Не удалось прочитать быстрый просмотр. Excel можно скачать кнопкой выше.")
@@ -797,9 +893,13 @@ else:
             with m1:
                 st.metric("Сделок", summary_value(summary_df, "Сделок в отчете") or "—")
             with m2:
-                st.metric("Ошибок звонков", summary_value(summary_df, "Ошибок обработки звонков") or "—")
+                st.metric(
+                    "Ошибок звонков", summary_value(summary_df, "Ошибок обработки звонков") or "—"
+                )
             with m3:
-                st.metric("Средняя оценка", summary_value(summary_df, "Средняя итоговая оценка") or "—")
+                st.metric(
+                    "Средняя оценка", summary_value(summary_df, "Средняя итоговая оценка") or "—"
+                )
             with m4:
                 st.metric("Критичных сделок", summary_value(summary_df, "Критичных сделок") or "—")
 
@@ -838,4 +938,3 @@ else:
                     f"base={row.get('overall_score')} cmp={row.get('overall_score_cmp')} "
                     f"delta={row.get('overall_score_delta')}"
                 )
-

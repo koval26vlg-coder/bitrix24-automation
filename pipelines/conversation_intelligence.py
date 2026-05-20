@@ -7,7 +7,6 @@ from typing import Any
 from pipelines.scoring import HANDLING_RE, OBJECTION_RULES
 from pipelines.stages import stage_display_name
 
-
 CONVERSATION_MAP_COLUMNS = [
     "deal_url",
     "stage_name",
@@ -104,7 +103,7 @@ TEXT_RISK_RULES = [
             r"не хочу|нет времени|проблем\w*|жалоб\w*|недовол\w*)\b",
             re.IGNORECASE,
         ),
-        "Признать позицию клиента, уточнить причину отказа и дать короткий аргумент под его задачу.",
+        "Признать позицию клиента, уточнить причину отказа и дать короткий аргумент под его задачу.",  # noqa: E501
         "Высокий",
     ),
     (
@@ -118,7 +117,9 @@ TEXT_RISK_RULES = [
     ),
 ]
 
-QUESTION_RE = re.compile(r"\b(что|как|когда|почему|зачем|сколько|какой|какая|какие|где)\b", re.IGNORECASE)
+QUESTION_RE = re.compile(
+    r"\b(что|как|когда|почему|зачем|сколько|какой|какая|какие|где)\b", re.IGNORECASE
+)
 NEXT_STEP_RE = re.compile(
     r"\b(перезвон\w*|созвон\w*|встреч\w*|отправ\w*|вышл\w*|"
     r"согласу\w*|уточн\w*|договор\w*|следующ\w* шаг)\b",
@@ -204,7 +205,9 @@ def _base_row(row: dict[str, Any], call_number: int) -> dict[str, Any]:
 def _normalize_existing_objection(objection: dict[str, Any]) -> dict[str, Any]:
     status = str(objection.get("objection_status") or "").strip()
     status_l = status.lower()
-    handled = bool(objection.get("handled")) or ("отработано" in status_l and "не отработано" not in status_l)
+    handled = bool(objection.get("handled")) or (
+        "отработано" in status_l and "не отработано" not in status_l
+    )
     return {
         "objection_type": str(objection.get("objection_type") or "Возражение").strip(),
         "objection_fragment": _clean_text(objection.get("objection_fragment")),
@@ -217,7 +220,9 @@ def _normalize_existing_objection(objection: dict[str, Any]) -> dict[str, Any]:
 def detect_objections(row: dict[str, Any], text: str) -> list[dict[str, Any]]:
     existing = row.get("objection_rows")
     if isinstance(existing, list) and existing:
-        objections = [_normalize_existing_objection(item) for item in existing if isinstance(item, dict)]
+        objections = [
+            _normalize_existing_objection(item) for item in existing if isinstance(item, dict)
+        ]
         return [item for item in objections if item.get("objection_fragment")]
 
     lower = text.lower()
@@ -328,15 +333,25 @@ def analyze_call(row: dict[str, Any], call_number: int) -> dict[str, Any] | None
 
     recommendations = []
     if unhandled:
-        recommendations.append("Отработать возражение по схеме: признать, уточнить, аргументировать, закрепить следующий шаг.")
+        recommendations.append(
+            "Отработать возражение по схеме: признать, уточнить, аргументировать, закрепить следующий шаг."  # noqa: E501
+        )
     if uncertainty_hits:
-        recommendations.append("Уточнять причину сомнения и переводить ответ клиента в конкретное следующее действие.")
+        recommendations.append(
+            "Уточнять причину сомнения и переводить ответ клиента в конкретное следующее действие."
+        )
     if negative_hits:
-        recommendations.append("Фиксировать причину негатива/отказа и подбирать аргумент под задачу клиента.")
+        recommendations.append(
+            "Фиксировать причину негатива/отказа и подбирать аргумент под задачу клиента."
+        )
     if not next_step_present:
-        recommendations.append("В конце каждого звонка фиксировать дату, действие и ответственного.")
+        recommendations.append(
+            "В конце каждого звонка фиксировать дату, действие и ответственного."
+        )
     if not recommendations:
-        recommendations.append("Продолжать контроль структуры разговора и качества фиксации результата в CRM.")
+        recommendations.append(
+            "Продолжать контроль структуры разговора и качества фиксации результата в CRM."
+        )
 
     return {
         "row": row,
@@ -358,7 +373,7 @@ def analyze_call(row: dict[str, Any], call_number: int) -> dict[str, Any] | None
         "emotion_state": state,
         "risk_evidence": _evidence(evidence_parts),
         "recommendation": "\n".join(dict.fromkeys(recommendations)),
-        "confidence": "Средняя: вывод сделан по тексту расшифровки, без акустической модели интонаций.",
+        "confidence": "Средняя: вывод сделан по тексту расшифровки, без акустической модели интонаций.",  # noqa: E501
     }
 
 
@@ -403,7 +418,7 @@ def _build_conversation_map_rows(analyses: list[dict[str, Any]]) -> list[dict[st
             out.append(
                 {
                     **base,
-                    "ci_moment_type": f"Провал этапа: {item.get('checklist_criterion') or ''}".strip(),
+                    "ci_moment_type": f"Провал этапа: {item.get('checklist_criterion') or ''}".strip(),  # noqa: E501
                     "ci_moment_risk": "Высокий" if score == 0 else "Средний",
                     "ci_moment_fragment": fragment,
                     "ci_moment_recommendation": _clean_text(item.get("checklist_comment"))
@@ -412,7 +427,13 @@ def _build_conversation_map_rows(analyses: list[dict[str, Any]]) -> list[dict[st
                     "ci_confidence": "Высокая: критерий уже рассчитан по чек-листу звонка.",
                 }
             )
-    return sorted(out, key=lambda row: (_risk_priority(str(row.get("ci_moment_risk") or "")), str(row.get("manager_name") or "")))
+    return sorted(
+        out,
+        key=lambda row: (
+            _risk_priority(str(row.get("ci_moment_risk") or "")),
+            str(row.get("manager_name") or ""),
+        ),
+    )
 
 
 def _build_objection_rows(analyses: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -421,7 +442,7 @@ def _build_objection_rows(analyses: list[dict[str, Any]]) -> list[dict[str, Any]
         for objection in analysis["objections"]:
             handled = bool(objection.get("handled"))
             next_action = (
-                "Разобрать с менеджером конкретную отработку возражения и закрепление следующего шага."
+                "Разобрать с менеджером конкретную отработку возражения и закрепление следующего шага."  # noqa: E501
                 if not handled
                 else "Проверить, был ли после ответа зафиксирован следующий шаг в CRM."
             )
@@ -436,7 +457,13 @@ def _build_objection_rows(analyses: list[dict[str, Any]]) -> list[dict[str, Any]
                     "ci_confidence": analysis["confidence"],
                 }
             )
-    return sorted(out, key=lambda row: (str(row.get("objection_status") or ""), str(row.get("manager_name") or "")))
+    return sorted(
+        out,
+        key=lambda row: (
+            str(row.get("objection_status") or ""),
+            str(row.get("manager_name") or ""),
+        ),
+    )
 
 
 def _build_emotional_risk_rows(analyses: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -468,7 +495,14 @@ def _build_emotional_risk_rows(analyses: list[dict[str, Any]]) -> list[dict[str,
     )
 
 
-def _add_factor(bucket: dict[str, Any], analysis: dict[str, Any], factor: str, priority: str, action: str, source: str) -> None:
+def _add_factor(
+    bucket: dict[str, Any],
+    analysis: dict[str, Any],
+    factor: str,
+    priority: str,
+    action: str,
+    source: str,
+) -> None:
     item = bucket.setdefault(
         factor,
         {
@@ -511,7 +545,7 @@ def _build_conversion_factor_rows(
                 analysis,
                 "Неотработанные возражения",
                 "Высокий",
-                "Ввести обязательный разбор возражений и библиотеку ответов по типовым причинам отказа.",
+                "Ввести обязательный разбор возражений и библиотеку ответов по типовым причинам отказа.",  # noqa: E501
                 "Расшифровки звонков",
             )
         if analysis["negative_count"]:
@@ -520,7 +554,7 @@ def _build_conversion_factor_rows(
                 analysis,
                 "Негатив или отказ в разговоре",
                 "Высокий",
-                "Фиксировать причину негатива и проверять, предложил ли менеджер альтернативный вариант.",
+                "Фиксировать причину негатива и проверять, предложил ли менеджер альтернативный вариант.",  # noqa: E501
                 "Расшифровки звонков",
             )
         if analysis["uncertainty_count"]:
@@ -556,7 +590,7 @@ def _build_conversion_factor_rows(
                 analysis,
                 "Слабое ведение CRM",
                 "Высокий",
-                "Контролировать обязательные поля, следующий шаг и соответствие стадии фактической ситуации.",
+                "Контролировать обязательные поля, следующий шаг и соответствие стадии фактической ситуации.",  # noqa: E501
                 "CRM-чек-лист",
             )
 
@@ -575,8 +609,12 @@ def _build_conversion_factor_rows(
                 "ci_affected_deals": deals,
                 "ci_affected_calls": calls,
                 "ci_factor_share_percent": round(deals * 100.0 / total_deals, 2),
-                "ci_avg_overall_score": round(sum(overall_scores) / len(overall_scores), 2) if overall_scores else "",
-                "ci_avg_call_quality_score": round(sum(call_scores) / len(call_scores), 2) if call_scores else "",
+                "ci_avg_overall_score": (
+                    round(sum(overall_scores) / len(overall_scores), 2) if overall_scores else ""
+                ),
+                "ci_avg_call_quality_score": (
+                    round(sum(call_scores) / len(call_scores), 2) if call_scores else ""
+                ),
                 "ci_expected_effect": "Рост конверсии за счет снижения повторяемой причины потерь.",
                 "ci_conversion_action": item["ci_conversion_action"],
             }
@@ -598,7 +636,8 @@ def _build_conversion_factor_rows(
                 "ci_avg_call_quality_score": "",
                 "ci_expected_effect": lost.get("conversion_expected_effect")
                 or "Снижение повторяемой причины отказа в проигранных сделках.",
-                "ci_conversion_action": lost.get("conversion_next_action") or lost.get("conversion_tools"),
+                "ci_conversion_action": lost.get("conversion_next_action")
+                or lost.get("conversion_tools"),
             }
         )
 
@@ -660,11 +699,11 @@ def _build_manager_recommendation_rows(analyses: list[dict[str, Any]]) -> list[d
         else:
             priority = "Низкий"
         recommendations = {
-            "Отработка возражений": "Провести разбор 3 звонков с неотработанными возражениями и закрепить готовые формулировки ответов.",
-            "Фиксация следующего шага": "Проверять, что каждый звонок заканчивается конкретным действием, датой и ответственным.",
-            "Ведение CRM": "Проверить заполнение карточек, стадию, следующий шаг и комментарии после звонка.",
+            "Отработка возражений": "Провести разбор 3 звонков с неотработанными возражениями и закрепить готовые формулировки ответов.",  # noqa: E501
+            "Фиксация следующего шага": "Проверять, что каждый звонок заканчивается конкретным действием, датой и ответственным.",  # noqa: E501
+            "Ведение CRM": "Проверить заполнение карточек, стадию, следующий шаг и комментарии после звонка.",  # noqa: E501
             "Выявление потребности": "Отработать блок вопросов до презентации решения.",
-            "Эмоциональный риск": "Прослушать звонки с высоким риском и найти моменты сомнения/негатива клиента.",
+            "Эмоциональный риск": "Прослушать звонки с высоким риском и найти моменты сомнения/негатива клиента.",  # noqa: E501
         }
         out.append(
             {
@@ -677,11 +716,19 @@ def _build_manager_recommendation_rows(analyses: list[dict[str, Any]]) -> list[d
                 "ci_no_next_step_count": item["ci_no_next_step_count"],
                 "ci_low_crm_count": item["ci_low_crm_count"],
                 "ci_main_growth_area": main_area,
-                "ci_manager_recommendation": recommendations.get(main_area, "Продолжать регулярный контроль звонков."),
-                "ci_manager_next_action": "Назначить точечный разбор с руководителем и проверить следующие 5 звонков по этому же критерию.",
+                "ci_manager_recommendation": recommendations.get(
+                    main_area, "Продолжать регулярный контроль звонков."
+                ),
+                "ci_manager_next_action": "Назначить точечный разбор с руководителем и проверить следующие 5 звонков по этому же критерию.",  # noqa: E501
             }
         )
-    return sorted(out, key=lambda row: (_risk_priority(str(row.get("ci_manager_priority") or "")), str(row.get("manager_name") or "")))
+    return sorted(
+        out,
+        key=lambda row: (
+            _risk_priority(str(row.get("ci_manager_priority") or "")),
+            str(row.get("manager_name") or ""),
+        ),
+    )
 
 
 def build_conversation_intelligence(

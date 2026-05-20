@@ -5,10 +5,9 @@ import json
 import os
 from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any
 
 from pipelines.paths import REPORTS_DIR
-
 
 BITNEWTON_TOKEN_TTL_DAYS = 30
 TOKEN_STATUS_PATH = REPORTS_DIR / "bitnewton_token_status.json"
@@ -18,7 +17,7 @@ def _token_hash(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8", errors="ignore")).hexdigest()
 
 
-def _parse_date(raw: Any) -> Optional[date]:
+def _parse_date(raw: Any) -> date | None:
     if not raw:
         return None
     try:
@@ -27,7 +26,7 @@ def _parse_date(raw: Any) -> Optional[date]:
         return None
 
 
-def _load_status(path: Path = TOKEN_STATUS_PATH) -> Dict[str, Any]:
+def _load_status(path: Path = TOKEN_STATUS_PATH) -> dict[str, Any]:
     try:
         if path.exists():
             raw = json.loads(path.read_text(encoding="utf-8"))
@@ -37,7 +36,7 @@ def _load_status(path: Path = TOKEN_STATUS_PATH) -> Dict[str, Any]:
     return {}
 
 
-def _save_status(status: Dict[str, Any], path: Path = TOKEN_STATUS_PATH) -> None:
+def _save_status(status: dict[str, Any], path: Path = TOKEN_STATUS_PATH) -> None:
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(json.dumps(status, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -46,12 +45,12 @@ def _save_status(status: Dict[str, Any], path: Path = TOKEN_STATUS_PATH) -> None
 
 
 def update_bitnewton_token_status(
-    token: Optional[str] = None,
+    token: str | None = None,
     *,
-    issued_at: Optional[str] = None,
-    today: Optional[date] = None,
+    issued_at: str | None = None,
+    today: date | None = None,
     path: Path = TOKEN_STATUS_PATH,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     token = (token if token is not None else os.getenv("BITNEWTON_TOKEN", "")).strip()
     today = today or date.today()
     if not token:
@@ -63,7 +62,11 @@ def update_bitnewton_token_status(
 
     current_hash = _token_hash(token)
     previous = _load_status(path)
-    env_issued_at = issued_at or os.getenv("BITNEWTON_TOKEN_ISSUED_AT") or os.getenv("BITNEWTON_TOKEN_CREATED_AT")
+    env_issued_at = (
+        issued_at
+        or os.getenv("BITNEWTON_TOKEN_ISSUED_AT")
+        or os.getenv("BITNEWTON_TOKEN_CREATED_AT")
+    )
     issued_date = _parse_date(env_issued_at)
 
     if previous.get("token_hash") == current_hash and not issued_date:
@@ -95,9 +98,9 @@ def update_bitnewton_token_status(
 def record_bitnewton_token_validation(
     *,
     ok: bool,
-    error: Optional[str] = None,
+    error: str | None = None,
     path: Path = TOKEN_STATUS_PATH,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     status = _load_status(path)
     if not status:
         return status
@@ -109,7 +112,7 @@ def record_bitnewton_token_validation(
     return status
 
 
-def current_bitnewton_token_status() -> Dict[str, Any]:
+def current_bitnewton_token_status() -> dict[str, Any]:
     token = os.getenv("BITNEWTON_TOKEN", "").strip()
     if token:
         return update_bitnewton_token_status(token)
@@ -120,7 +123,7 @@ def current_bitnewton_token_status() -> Dict[str, Any]:
     return {"configured": False, "days_left": None, "message": "BITNEWTON_TOKEN не задан."}
 
 
-def format_bitnewton_token_status(status: Dict[str, Any]) -> str:
+def format_bitnewton_token_status(status: dict[str, Any]) -> str:
     if not status.get("configured"):
         return "BITNEWTON_TOKEN не задан."
     days_left = status.get("days_left")
@@ -134,9 +137,15 @@ def format_bitnewton_token_status(status: Dict[str, Any]) -> str:
     except Exception:
         return f"Токен Bit.Newton активен. Дата окончания: {expires_at}."
     if validation_ok is False:
-        local_ttl = f"локально до {expires_at}, осталось {days} дн" if days >= 0 else f"локально просрочен {expires_at}"
-        short_error = validation_error.splitlines()[0][:180] if validation_error else "проверка не пройдена"
-        return f"Токен Bit.Newton не прошел проверку: {short_error}. Срок по локальному учету: {local_ttl}."
+        local_ttl = (
+            f"локально до {expires_at}, осталось {days} дн"
+            if days >= 0
+            else f"локально просрочен {expires_at}"
+        )
+        short_error = (
+            validation_error.splitlines()[0][:180] if validation_error else "проверка не пройдена"
+        )
+        return f"Токен Bit.Newton не прошел проверку: {short_error}. Срок по локальному учету: {local_ttl}."  # noqa: E501
     if days < 0:
         return f"Токен Bit.Newton просрочен на {abs(days)} дн. Дата окончания: {expires_at}."
     if days == 0:

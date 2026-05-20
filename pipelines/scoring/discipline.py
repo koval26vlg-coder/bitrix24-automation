@@ -1,10 +1,12 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 FIRST_RESPONSE_SLA_HOURS = 0.5
 
-def parse_dt(raw: Any) -> Optional[datetime]:
+
+def parse_dt(raw: Any) -> datetime | None:
     try:
         if not raw:
             return None
@@ -12,7 +14,8 @@ def parse_dt(raw: Any) -> Optional[datetime]:
     except Exception:
         return None
 
-def reaction_speed_label(first_delay_min: Optional[float]) -> str:
+
+def reaction_speed_label(first_delay_min: float | None) -> str:
     if first_delay_min is None:
         return "Нет звонка менеджера"
     if first_delay_min <= 15:
@@ -23,7 +26,10 @@ def reaction_speed_label(first_delay_min: Optional[float]) -> str:
         return "Поздно"
     return "Критически поздно"
 
-def compute_discipline_metrics(deal: Dict[str, Any], calls: List[Dict[str, Any]], kpi: Dict[str, Any]) -> Dict[str, Any]:
+
+def compute_discipline_metrics(
+    deal: dict[str, Any], calls: list[dict[str, Any]], kpi: dict[str, Any]
+) -> dict[str, Any]:
     sla_cfg = kpi.get("sla", {})
     first_response_sla = float(sla_cfg.get("first_response_hours", FIRST_RESPONSE_SLA_HOURS))
     created = parse_dt(deal.get("DATE_CREATE"))
@@ -48,9 +54,9 @@ def compute_discipline_metrics(deal: Dict[str, Any], calls: List[Dict[str, Any]]
         "first_response_sla_ok": first_ok,
         "reaction_speed_label": reaction_speed_label(first_delay_min),
         "first_response_explanation": (
-            f"Скорость реакции — сколько минут прошло от создания сделки до первого звонка менеджера. "
+            f"Скорость реакции — сколько минут прошло от создания сделки до первого звонка менеджера. "  # noqa: E501
             f"Единая норма KPI: до 30 мин.; факт: {first_delay_min:g} мин."
             if first_delay_min is not None
-            else "Скорость реакции — время от создания сделки до первого звонка менеджера. Единая норма KPI: до 30 мин.; звонков менеджера нет."
+            else "Скорость реакции — время от создания сделки до первого звонка менеджера. Единая норма KPI: до 30 мин.; звонков менеджера нет."  # noqa: E501
         ),
     }

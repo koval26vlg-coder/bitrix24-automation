@@ -1,12 +1,11 @@
 from __future__ import annotations
 
+import html
 import os
 import re
 import time
-import html
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 
 class UiDownloadError(RuntimeError):
@@ -16,15 +15,15 @@ class UiDownloadError(RuntimeError):
 @dataclass
 class UiDownloadResult:
     ok: bool
-    path: Optional[Path]
-    error: Optional[str] = None
+    path: Path | None
+    error: str | None = None
 
 
 @dataclass
 class UiTranscriptResult:
     ok: bool
     text: str = ""
-    error: Optional[str] = None
+    error: str | None = None
 
 
 PARTIAL_SUFFIXES = (".crdownload", ".tmp", ".download")
@@ -32,7 +31,7 @@ MIN_UI_LOGIN_WAIT_SEC = 120
 DEFAULT_UI_TIMEOUT_SEC = 20
 
 
-def _clean_url(url: Optional[str]) -> str:
+def _clean_url(url: str | None) -> str:
     if not isinstance(url, str):
         return ""
     return html.unescape(url).strip()
@@ -41,10 +40,14 @@ def _clean_url(url: Optional[str]) -> str:
 def _import_selenium():
     try:
         from selenium import webdriver
-        from selenium.common.exceptions import SessionNotCreatedException, TimeoutException, WebDriverException
+        from selenium.common.exceptions import (
+            SessionNotCreatedException,
+            TimeoutException,
+            WebDriverException,
+        )
         from selenium.webdriver.chrome.options import Options as ChromeOptions
-        from selenium.webdriver.edge.options import Options as EdgeOptions
         from selenium.webdriver.common.by import By
+        from selenium.webdriver.edge.options import Options as EdgeOptions
         from selenium.webdriver.support import expected_conditions as EC
         from selenium.webdriver.support.ui import WebDriverWait
     except Exception as e:  # pragma: no cover
@@ -112,7 +115,9 @@ def _page_context(driver) -> str:
     except Exception:
         title = ""
     try:
-        text = html.unescape(str(driver.execute_script("return document.body ? document.body.innerText : ''") or ""))
+        text = html.unescape(
+            str(driver.execute_script("return document.body ? document.body.innerText : ''") or "")
+        )
         text = re.sub(r"\s+", " ", text).strip()[:260]
     except Exception:
         text = ""
@@ -143,12 +148,16 @@ def _looks_like_invalid_owner_page(driver) -> bool:
     except Exception:
         title = ""
     try:
-        text = html.unescape(str(driver.execute_script("return document.body ? document.body.innerText : ''") or "")).lower()
+        text = html.unescape(
+            str(driver.execute_script("return document.body ? document.body.innerText : ''") or "")
+        ).lower()
     except Exception:
         text = ""
 
     context = " ".join([cur, title, text[:1200]])
-    return "invalid data ownertypeid" in context or ("ownertypeid = 0" in context and "ownerid = 0" in context)
+    return "invalid data ownertypeid" in context or (
+        "ownertypeid = 0" in context and "ownerid = 0" in context
+    )
 
 
 def _looks_like_login_page(driver) -> bool:
@@ -161,7 +170,9 @@ def _looks_like_login_page(driver) -> bool:
     except Exception:
         title = ""
     try:
-        text = str(driver.execute_script("return document.body ? document.body.innerText : ''") or "").lower()
+        text = str(
+            driver.execute_script("return document.body ? document.body.innerText : ''") or ""
+        ).lower()
     except Exception:
         text = ""
 
@@ -176,7 +187,9 @@ def _looks_like_login_page(driver) -> bool:
     ) or "авторизация" in auth_text
 
 
-def _wait_for_manual_login(driver, timeout_sec: int = MIN_UI_LOGIN_WAIT_SEC) -> tuple[bool, Optional[str]]:
+def _wait_for_manual_login(
+    driver, timeout_sec: int = MIN_UI_LOGIN_WAIT_SEC
+) -> tuple[bool, str | None]:
     if not _looks_like_login_page(driver):
         return False, None
 
@@ -190,7 +203,7 @@ def _wait_for_manual_login(driver, timeout_sec: int = MIN_UI_LOGIN_WAIT_SEC) -> 
     return True, f"не дождался входа в Bitrix за {wait_sec} сек.; {_page_context(driver)}"
 
 
-def _validate_download(path: Path, driver=None) -> Optional[str]:
+def _validate_download(path: Path, driver=None) -> str | None:
     try:
         if not path.exists() or path.stat().st_size <= 0:
             return "файл не создан или пустой"
@@ -203,7 +216,9 @@ def _validate_download(path: Path, driver=None) -> Optional[str]:
     return None
 
 
-def _wait_for_download(downloads_dir: Path, before: dict[str, tuple[int, int]], timeout_sec: int, driver=None) -> UiDownloadResult:
+def _wait_for_download(
+    downloads_dir: Path, before: dict[str, tuple[int, int]], timeout_sec: int, driver=None
+) -> UiDownloadResult:
     deadline = time.time() + max(1, int(timeout_sec))
     while time.time() < deadline:
         files = []
@@ -233,7 +248,8 @@ def _wait_for_download(downloads_dir: Path, before: dict[str, tuple[int, int]], 
     return UiDownloadResult(
         ok=False,
         path=None,
-        error="UI download timeout: файл не появился в папке загрузок" + (f" ({ctx})" if ctx else ""),
+        error="UI download timeout: файл не появился в папке загрузок"
+        + (f" ({ctx})" if ctx else ""),
     )
 
 
@@ -244,14 +260,20 @@ def _system_profile_dir(browser_name: str) -> str:
             return str(Path(local) / "Microsoft" / "Edge" / "User Data")
         return str(Path(local) / "Google" / "Chrome" / "User Data")
     if browser_name == "edge":
-        return str((Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data").resolve())
+        return str(
+            (Path.home() / "AppData" / "Local" / "Microsoft" / "Edge" / "User Data").resolve()
+        )
     return str((Path.home() / "AppData" / "Local" / "Google" / "Chrome" / "User Data").resolve())
 
 
-def _resolve_profile_dir(browser_name: str, chrome_profile_dir: Optional[str]) -> str:
+def _resolve_profile_dir(browser_name: str, chrome_profile_dir: str | None) -> str:
     if chrome_profile_dir and chrome_profile_dir.strip().lower() in {"system", "default", "user"}:
         return _system_profile_dir(browser_name)
-    return chrome_profile_dir or os.getenv("CHROME_PROFILE_DIR") or str((Path("reports") / "chrome_profile").resolve())
+    return (
+        chrome_profile_dir
+        or os.getenv("CHROME_PROFILE_DIR")
+        or str((Path("reports") / "chrome_profile").resolve())
+    )
 
 
 def _options(
@@ -260,7 +282,7 @@ def _options(
     downloads_dir: Path,
     ChromeOptions,
     EdgeOptions,
-    profile_directory: Optional[str] = None,
+    profile_directory: str | None = None,
 ):
     options = EdgeOptions() if browser_name == "edge" else ChromeOptions()
     try:
@@ -277,7 +299,9 @@ def _options(
     options.add_argument("--disable-gpu")
     options.add_argument("--disable-popup-blocking")
     options.add_argument(f"--user-data-dir={user_data_dir}")
-    profile_directory = (profile_directory or os.getenv("BROWSER_PROFILE_DIRECTORY") or "Default").strip()
+    profile_directory = (
+        profile_directory or os.getenv("BROWSER_PROFILE_DIRECTORY") or "Default"
+    ).strip()
     if profile_directory:
         options.add_argument(f"--profile-directory={profile_directory}")
     options.add_experimental_option(
@@ -305,8 +329,8 @@ def _allow_downloads(driver, downloads_dir: Path) -> None:
 def _create_driver(
     browser: str,
     downloads_dir: Path,
-    chrome_profile_dir: Optional[str],
-    browser_profile_directory: Optional[str] = None,
+    chrome_profile_dir: str | None,
+    browser_profile_directory: str | None = None,
 ):
     (
         webdriver,
@@ -328,7 +352,14 @@ def _create_driver(
     Path(base_profile_dir).mkdir(parents=True, exist_ok=True)
 
     def create(profile_dir: str):
-        opts = _options(browser, profile_dir, downloads_dir, ChromeOptions, EdgeOptions, browser_profile_directory)
+        opts = _options(
+            browser,
+            profile_dir,
+            downloads_dir,
+            ChromeOptions,
+            EdgeOptions,
+            browser_profile_directory,
+        )
         if browser == "edge":
             return webdriver.Edge(options=opts)  # type: ignore[attr-defined]
         return webdriver.Chrome(options=opts)
@@ -336,7 +367,11 @@ def _create_driver(
     try:
         driver = create(base_profile_dir)
     except (SessionNotCreatedException, WebDriverException) as e:
-        if chrome_profile_dir and chrome_profile_dir.strip().lower() in {"system", "default", "user"}:
+        if chrome_profile_dir and chrome_profile_dir.strip().lower() in {
+            "system",
+            "default",
+            "user",
+        }:
             raise UiDownloadError(
                 "Chrome/Edge system-профиль занят или заблокирован. "
                 "Закрой все окна браузера и повтори, либо выбери custom-профиль. "
@@ -355,7 +390,7 @@ def _create_driver(
     return driver, By, WebDriverWait, EC, TimeoutException, WebDriverException
 
 
-def _safe_get(driver, url: str, TimeoutException, timeout_sec: int = 35) -> Optional[str]:
+def _safe_get(driver, url: str, TimeoutException, timeout_sec: int = 35) -> str | None:
     url = _clean_url(url)
     if not url:
         return "empty url"
@@ -374,11 +409,11 @@ def _safe_get(driver, url: str, TimeoutException, timeout_sec: int = 35) -> Opti
         return f"page load timeout: {url}"
 
 
-def _click_first_download_control(driver, By) -> Optional[str]:
+def _click_first_download_control(driver, By) -> str | None:
     xpaths = [
         "//a[contains(., 'Скачать') or contains(., 'Download') or contains(., 'download')]",
         "//*[self::button or self::span or self::div][contains(., 'Скачать')]",
-        "//a[contains(@href, 'download') or contains(@href, 'Download') or contains(@href, 'crm_show_file.php')]",
+        "//a[contains(@href, 'download') or contains(@href, 'Download') or contains(@href, 'crm_show_file.php')]",  # noqa: E501
     ]
     last_error = None
     for xp in xpaths:
@@ -410,9 +445,14 @@ def _click_first_download_control(driver, By) -> Optional[str]:
 def _visible_text_from_element(driver, element=None) -> str:
     try:
         if element is None:
-            text = driver.execute_script("return document.body ? document.body.innerText : ''") or ""
+            text = (
+                driver.execute_script("return document.body ? document.body.innerText : ''") or ""
+            )
         else:
-            text = driver.execute_script("return arguments[0] ? arguments[0].innerText : ''", element) or ""
+            text = (
+                driver.execute_script("return arguments[0] ? arguments[0].innerText : ''", element)
+                or ""
+            )
         return html.unescape(str(text))
     except Exception:
         return ""
@@ -458,9 +498,9 @@ class UiBrowserSession:
     def __init__(
         self,
         downloads_dir: Path,
-        chrome_profile_dir: Optional[str] = None,
+        chrome_profile_dir: str | None = None,
         browser: str = "chrome",
-        browser_profile_directory: Optional[str] = None,
+        browser_profile_directory: str | None = None,
     ):
         downloads_dir.mkdir(parents=True, exist_ok=True)
         self.downloads_dir = downloads_dir
@@ -485,50 +525,78 @@ class UiBrowserSession:
         except Exception:
             pass
 
-    def __enter__(self) -> "UiBrowserSession":
+    def __enter__(self) -> UiBrowserSession:
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:
         self.close()
 
-    def download_url(self, url: str, timeout_sec: int = DEFAULT_UI_TIMEOUT_SEC, referer_url: Optional[str] = None) -> UiDownloadResult:
+    def download_url(
+        self, url: str, timeout_sec: int = DEFAULT_UI_TIMEOUT_SEC, referer_url: str | None = None
+    ) -> UiDownloadResult:
         url = _clean_url(url)
         referer_url = _clean_url(referer_url)
         if not isinstance(url, str) or not url.startswith("http"):
-            return UiDownloadResult(ok=False, path=None, error=f"Некорректный URL для UI-скачивания: {url!r}")
+            return UiDownloadResult(
+                ok=False, path=None, error=f"Некорректный URL для UI-скачивания: {url!r}"
+            )
 
         try:
             timeout_sec = max(5, int(timeout_sec or DEFAULT_UI_TIMEOUT_SEC))
             before = _snapshot_downloads(self.downloads_dir)
             if referer_url and not self._login_checked:
-                _safe_get(self.driver, referer_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
-                login_waited, login_error = _wait_for_manual_login(self.driver, timeout_sec=timeout_sec)
+                _safe_get(
+                    self.driver,
+                    referer_url,
+                    self.TimeoutException,
+                    timeout_sec=min(30, timeout_sec),
+                )
+                login_waited, login_error = _wait_for_manual_login(
+                    self.driver, timeout_sec=timeout_sec
+                )
                 if login_error:
                     return UiDownloadResult(ok=False, path=None, error=login_error)
                 if login_waited:
-                    _safe_get(self.driver, referer_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+                    _safe_get(
+                        self.driver,
+                        referer_url,
+                        self.TimeoutException,
+                        timeout_sec=min(30, timeout_sec),
+                    )
                 time.sleep(1.0)
                 _allow_downloads(self.driver, self.downloads_dir)
                 self._login_checked = True
 
-            nav_warning = _safe_get(self.driver, url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+            nav_warning = _safe_get(
+                self.driver, url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+            )
             login_waited, login_error = _wait_for_manual_login(self.driver, timeout_sec=timeout_sec)
             if login_error:
                 return UiDownloadResult(ok=False, path=None, error=login_error)
             if login_waited:
-                nav_warning = _safe_get(self.driver, url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+                nav_warning = _safe_get(
+                    self.driver, url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+                )
             self._login_checked = True
             _allow_downloads(self.driver, self.downloads_dir)
             if _looks_like_invalid_owner_page(self.driver):
-                return UiDownloadResult(ok=False, path=None, error=f"Bitrix открыл ссылку без контекста ownerTypeId/ownerId: {_page_context(self.driver)}")
+                return UiDownloadResult(
+                    ok=False,
+                    path=None,
+                    error=f"Bitrix открыл ссылку без контекста ownerTypeId/ownerId: {_page_context(self.driver)}",  # noqa: E501
+                )
 
-            quick = _wait_for_download(self.downloads_dir, before, timeout_sec=min(8, timeout_sec), driver=self.driver)
+            quick = _wait_for_download(
+                self.downloads_dir, before, timeout_sec=min(8, timeout_sec), driver=self.driver
+            )
             if quick.ok or quick.path:
                 return quick
 
             clicked = _click_first_download_control(self.driver, self.By)
             remaining = max(5, min(45, int(timeout_sec) - 8))
-            final = _wait_for_download(self.downloads_dir, before, timeout_sec=remaining, driver=self.driver)
+            final = _wait_for_download(
+                self.downloads_dir, before, timeout_sec=remaining, driver=self.driver
+            )
             if final.ok or final.path:
                 return final
 
@@ -539,7 +607,9 @@ class UiBrowserSession:
                 details.append(str(clicked))
             if final.error:
                 details.append(final.error)
-            return UiDownloadResult(ok=False, path=None, error="; ".join(details) or "UI download failed")
+            return UiDownloadResult(
+                ok=False, path=None, error="; ".join(details) or "UI download failed"
+            )
         except self.WebDriverException as e:
             return UiDownloadResult(ok=False, path=None, error=f"Selenium error: {e}")
 
@@ -555,16 +625,22 @@ class UiBrowserSession:
         wait = self.WebDriverWait(self.driver, min(10, max(1, timeout_sec)))
 
         def wait_download(before, seconds: int) -> UiDownloadResult:
-            return _wait_for_download(self.downloads_dir, before, timeout_sec=seconds, driver=self.driver)
+            return _wait_for_download(
+                self.downloads_dir, before, timeout_sec=seconds, driver=self.driver
+            )
 
         try:
             before = _snapshot_downloads(self.downloads_dir)
-            nav_warning = _safe_get(self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+            nav_warning = _safe_get(
+                self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+            )
             login_waited, login_error = _wait_for_manual_login(self.driver, timeout_sec=timeout_sec)
             if login_error:
                 return UiDownloadResult(ok=False, path=None, error=login_error)
             if login_waited:
-                nav_warning = _safe_get(self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+                nav_warning = _safe_get(
+                    self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+                )
             _allow_downloads(self.driver, self.downloads_dir)
 
             deadline = time.time() + max(5, min(30, timeout_sec))
@@ -584,9 +660,9 @@ class UiBrowserSession:
                     pass
 
             link_xpaths = [
-                f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",
-                f"//a[contains(@href, 'fileId=') and contains(@href, 'ownerId={int(activity_id)}')]",
-                f"//a[contains(@href, '{int(activity_id)}') and (contains(@href, 'download') or contains(@href, 'crm_show_file.php'))]",
+                f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",  # noqa: E501
+                f"//a[contains(@href, 'fileId=') and contains(@href, 'ownerId={int(activity_id)}')]",  # noqa: E501
+                f"//a[contains(@href, '{int(activity_id)}') and (contains(@href, 'download') or contains(@href, 'crm_show_file.php'))]",  # noqa: E501
             ]
             for xp in link_xpaths:
                 try:
@@ -599,11 +675,18 @@ class UiBrowserSession:
                         if _is_contextless_disk_download_href(href):
                             continue
                         if href.startswith("http"):
-                            _safe_get(self.driver, href, self.TimeoutException, timeout_sec=min(12, timeout_sec))
+                            _safe_get(
+                                self.driver,
+                                href,
+                                self.TimeoutException,
+                                timeout_sec=min(12, timeout_sec),
+                            )
                             if _looks_like_invalid_owner_page(self.driver):
                                 continue
                         else:
-                            self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", link)
+                            self.driver.execute_script(
+                                "arguments[0].scrollIntoView({block:'center'});", link
+                            )
                             self.driver.execute_script("arguments[0].click();", link)
                     except Exception:
                         continue
@@ -616,8 +699,14 @@ class UiBrowserSession:
                 (By.CSS_SELECTOR, f"[data-id='{int(activity_id)}']"),
                 (By.CSS_SELECTOR, f"[data-entity-id='{int(activity_id)}']"),
                 (By.XPATH, f"//*[contains(@data-id, '{int(activity_id)}')]"),
-                (By.XPATH, f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]"),
-                (By.XPATH, f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]"),
+                (
+                    By.XPATH,
+                    f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]",  # noqa: E501
+                ),
+                (
+                    By.XPATH,
+                    f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",  # noqa: E501
+                ),
             ]
             for by, sel in card_locators:
                 try:
@@ -625,7 +714,7 @@ class UiBrowserSession:
                     try:
                         card = el.find_element(
                             By.XPATH,
-                            "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",
+                            "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",  # noqa: E501
                         )
                     except Exception:
                         card = el
@@ -639,7 +728,8 @@ class UiBrowserSession:
                 return UiDownloadResult(
                     ok=False,
                     path=None,
-                    error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}" + (f"; {details}" if details else ""),
+                    error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}"
+                    + (f"; {details}" if details else ""),
                 )
 
             try:
@@ -650,8 +740,14 @@ class UiBrowserSession:
 
             menu_btn = None
             menu_locators = [
-                (By.XPATH, ".//button[contains(@aria-label,'Еще') or contains(@title,'Еще') or contains(@aria-label,'More') or contains(@title,'More')]"),
-                (By.XPATH, ".//*[contains(@class,'ui-icon-set') and (contains(@class,'--more') or contains(@class,'more'))]"),
+                (
+                    By.XPATH,
+                    ".//button[contains(@aria-label,'Еще') or contains(@title,'Еще') or contains(@aria-label,'More') or contains(@title,'More')]",  # noqa: E501
+                ),
+                (
+                    By.XPATH,
+                    ".//*[contains(@class,'ui-icon-set') and (contains(@class,'--more') or contains(@class,'more'))]",  # noqa: E501
+                ),
                 (By.XPATH, ".//button[contains(., '…') or contains(., '...')]"),
                 (By.XPATH, ".//*[contains(@class,'menu') or contains(@class,'more')]"),
             ]
@@ -664,7 +760,11 @@ class UiBrowserSession:
                     continue
 
             if not menu_btn:
-                return UiDownloadResult(ok=False, path=None, error=f"Не нашёл кнопку меню у звонка; {_page_context(self.driver)}")
+                return UiDownloadResult(
+                    ok=False,
+                    path=None,
+                    error=f"Не нашёл кнопку меню у звонка; {_page_context(self.driver)}",
+                )
 
             try:
                 menu_btn.click()
@@ -672,14 +772,18 @@ class UiBrowserSession:
                 try:
                     self.driver.execute_script("arguments[0].click();", menu_btn)
                 except Exception as e:
-                    return UiDownloadResult(ok=False, path=None, error=f"Не удалось кликнуть меню: {e}; {_page_context(self.driver)}")
+                    return UiDownloadResult(
+                        ok=False,
+                        path=None,
+                        error=f"Не удалось кликнуть меню: {e}; {_page_context(self.driver)}",
+                    )
 
             try:
                 dl_item = wait.until(
                     EC.element_to_be_clickable(
                         (
                             By.XPATH,
-                            "//*[contains(@class,'menu-popup') or contains(@class,'ui-context-menu') or contains(@class,'popup-window')]//*[contains(., 'Скачать') or contains(., 'Download')]",
+                            "//*[contains(@class,'menu-popup') or contains(@class,'ui-context-menu') or contains(@class,'popup-window')]//*[contains(., 'Скачать') or contains(., 'Download')]",  # noqa: E501
                         )
                     )
                 )
@@ -687,7 +791,11 @@ class UiBrowserSession:
             except Exception:
                 clicked = _click_first_download_control(self.driver, By)
                 if not clicked:
-                    return UiDownloadResult(ok=False, path=None, error=f"Не нашёл пункт 'Скачать'; {_page_context(self.driver)}")
+                    return UiDownloadResult(
+                        ok=False,
+                        path=None,
+                        error=f"Не нашёл пункт 'Скачать'; {_page_context(self.driver)}",
+                    )
 
             res = wait_download(before, seconds=timeout_sec)
             if res.ok or res.path:
@@ -710,12 +818,16 @@ class UiBrowserSession:
         wait = self.WebDriverWait(self.driver, min(10, max(1, timeout_sec)))
 
         try:
-            nav_warning = _safe_get(self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+            nav_warning = _safe_get(
+                self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+            )
             login_waited, login_error = _wait_for_manual_login(self.driver, timeout_sec=timeout_sec)
             if login_error:
                 return UiTranscriptResult(ok=False, error=login_error)
             if login_waited:
-                nav_warning = _safe_get(self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec))
+                nav_warning = _safe_get(
+                    self.driver, deal_url, self.TimeoutException, timeout_sec=min(30, timeout_sec)
+                )
 
             deadline = time.time() + max(5, min(20, timeout_sec))
             while time.time() < deadline:
@@ -738,7 +850,10 @@ class UiBrowserSession:
                 (By.CSS_SELECTOR, f"[data-id='{int(activity_id)}']"),
                 (By.CSS_SELECTOR, f"[data-entity-id='{int(activity_id)}']"),
                 (By.XPATH, f"//*[contains(@data-id, '{int(activity_id)}')]"),
-                (By.XPATH, f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]"),
+                (
+                    By.XPATH,
+                    f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]",  # noqa: E501
+                ),
             ]
             for by, sel in card_locators:
                 try:
@@ -746,7 +861,7 @@ class UiBrowserSession:
                     try:
                         card = el.find_element(
                             By.XPATH,
-                            "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",
+                            "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",  # noqa: E501
                         )
                     except Exception:
                         card = el
@@ -758,7 +873,11 @@ class UiBrowserSession:
             if not card:
                 details = _page_context(self.driver)
                 warning = f"; {nav_warning}" if nav_warning else ""
-                return UiTranscriptResult(ok=False, error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}{warning}" + (f"; {details}" if details else ""))
+                return UiTranscriptResult(
+                    ok=False,
+                    error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}{warning}"
+                    + (f"; {details}" if details else ""),
+                )
 
             try:
                 self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", card)
@@ -771,9 +890,9 @@ class UiBrowserSession:
 
             transcript_controls = []
             control_xpaths = [
-                ".//*[self::button or self::a or self::div or self::span][contains(@title,'Расшиф') or contains(@aria-label,'Расшиф') or contains(., 'Расшифров')]",
-                ".//*[self::button or self::a or self::div or self::span][normalize-space(.)='A' or normalize-space(.)='>A' or contains(normalize-space(.), '→A')]",
-                ".//*[self::button or self::a][contains(@class,'transcript') or contains(@class,'ai') or contains(@class,'speech')]",
+                ".//*[self::button or self::a or self::div or self::span][contains(@title,'Расшиф') or contains(@aria-label,'Расшиф') or contains(., 'Расшифров')]",  # noqa: E501
+                ".//*[self::button or self::a or self::div or self::span][normalize-space(.)='A' or normalize-space(.)='>A' or contains(normalize-space(.), '→A')]",  # noqa: E501
+                ".//*[self::button or self::a][contains(@class,'transcript') or contains(@class,'ai') or contains(@class,'speech')]",  # noqa: E501
             ]
             for xp in control_xpaths:
                 try:
@@ -786,7 +905,9 @@ class UiBrowserSession:
             last_error = None
             for control in transcript_controls[:8]:
                 try:
-                    self.driver.execute_script("arguments[0].scrollIntoView({block:'center'});", control)
+                    self.driver.execute_script(
+                        "arguments[0].scrollIntoView({block:'center'});", control
+                    )
                     time.sleep(0.2)
                     try:
                         control.click()
@@ -796,7 +917,9 @@ class UiBrowserSession:
                     for _ in range(max(2, min(8, timeout_sec // 2))):
                         body_text = _visible_text_from_element(self.driver)
                         card_text = _visible_text_from_element(self.driver, card)
-                        text = _extract_new_transcript_text(before_body, body_text) or _extract_new_transcript_text(before_card, card_text)
+                        text = _extract_new_transcript_text(
+                            before_body, body_text
+                        ) or _extract_new_transcript_text(before_card, card_text)
                         if text:
                             return UiTranscriptResult(ok=True, text=text)
                         time.sleep(1.0)
@@ -804,7 +927,11 @@ class UiBrowserSession:
                     last_error = str(e)
                     continue
 
-            return UiTranscriptResult(ok=False, error="Не нашёл или не прочитал кнопку расшифровки в карточке звонка" + (f": {last_error}" if last_error else ""))
+            return UiTranscriptResult(
+                ok=False,
+                error="Не нашёл или не прочитал кнопку расшифровки в карточке звонка"
+                + (f": {last_error}" if last_error else ""),
+            )
         except self.WebDriverException as e:
             return UiTranscriptResult(ok=False, error=f"Selenium error: {e}")
 
@@ -812,20 +939,22 @@ class UiBrowserSession:
 def download_url_via_ui(
     url: str,
     downloads_dir: Path,
-    chrome_profile_dir: Optional[str] = None,
+    chrome_profile_dir: str | None = None,
     browser: str = "chrome",
     timeout_sec: int = DEFAULT_UI_TIMEOUT_SEC,
-    referer_url: Optional[str] = None,
-    browser_profile_directory: Optional[str] = None,
+    referer_url: str | None = None,
+    browser_profile_directory: str | None = None,
 ) -> UiDownloadResult:
     """
     Открывает точную ссылку Bitrix через авторизованный браузер и ждёт реальный файл.
     Для записей звонков это обычно надёжнее, чем REST: cookies браузера дают доступ к crm_show_file.php.
-    """
+    """  # noqa: E501
     url = _clean_url(url)
     referer_url = _clean_url(referer_url)
     if not isinstance(url, str) or not url.startswith("http"):
-        return UiDownloadResult(ok=False, path=None, error=f"Некорректный URL для UI-скачивания: {url!r}")
+        return UiDownloadResult(
+            ok=False, path=None, error=f"Некорректный URL для UI-скачивания: {url!r}"
+        )
 
     downloads_dir.mkdir(parents=True, exist_ok=True)
     try:
@@ -859,9 +988,15 @@ def download_url_via_ui(
             nav_warning = _safe_get(driver, url, TimeoutException, timeout_sec=min(30, timeout_sec))
         _allow_downloads(driver, downloads_dir)
         if _looks_like_invalid_owner_page(driver):
-            return UiDownloadResult(ok=False, path=None, error=f"Bitrix открыл ссылку без контекста ownerTypeId/ownerId: {_page_context(driver)}")
+            return UiDownloadResult(
+                ok=False,
+                path=None,
+                error=f"Bitrix открыл ссылку без контекста ownerTypeId/ownerId: {_page_context(driver)}",  # noqa: E501
+            )
 
-        quick = _wait_for_download(downloads_dir, before, timeout_sec=min(8, timeout_sec), driver=driver)
+        quick = _wait_for_download(
+            downloads_dir, before, timeout_sec=min(8, timeout_sec), driver=driver
+        )
         if quick.ok or quick.path:
             return quick
 
@@ -878,7 +1013,9 @@ def download_url_via_ui(
             details.append(str(clicked))
         if final.error:
             details.append(final.error)
-        return UiDownloadResult(ok=False, path=None, error="; ".join(details) or "UI download failed")
+        return UiDownloadResult(
+            ok=False, path=None, error="; ".join(details) or "UI download failed"
+        )
     except WebDriverException as e:
         return UiDownloadResult(ok=False, path=None, error=f"Selenium error: {e}")
     finally:
@@ -892,10 +1029,10 @@ def download_call_from_deal_timeline_via_ui(
     deal_url: str,
     activity_id: int,
     downloads_dir: Path,
-    chrome_profile_dir: Optional[str] = None,
+    chrome_profile_dir: str | None = None,
     browser: str = "chrome",
     timeout_sec: int = DEFAULT_UI_TIMEOUT_SEC,
-    browser_profile_directory: Optional[str] = None,
+    browser_profile_directory: str | None = None,
 ) -> UiDownloadResult:
     """
     UI-скачивание через сделку: открыть таймлайн, найти ссылку файла или пункт "Скачать".
@@ -917,12 +1054,16 @@ def download_call_from_deal_timeline_via_ui(
     try:
         timeout_sec = max(5, int(timeout_sec or DEFAULT_UI_TIMEOUT_SEC))
         before = _snapshot_downloads(downloads_dir)
-        nav_warning = _safe_get(driver, deal_url, TimeoutException, timeout_sec=min(30, timeout_sec))
+        nav_warning = _safe_get(
+            driver, deal_url, TimeoutException, timeout_sec=min(30, timeout_sec)
+        )
         login_waited, login_error = _wait_for_manual_login(driver, timeout_sec=timeout_sec)
         if login_error:
             return UiDownloadResult(ok=False, path=None, error=login_error)
         if login_waited:
-            nav_warning = _safe_get(driver, deal_url, TimeoutException, timeout_sec=min(30, timeout_sec))
+            nav_warning = _safe_get(
+                driver, deal_url, TimeoutException, timeout_sec=min(30, timeout_sec)
+            )
         _allow_downloads(driver, downloads_dir)
 
         wait = WebDriverWait(driver, min(20, timeout_sec))
@@ -944,9 +1085,9 @@ def download_call_from_deal_timeline_via_ui(
                 pass
 
         link_xpaths = [
-            f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",
+            f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",  # noqa: E501
             f"//a[contains(@href, 'fileId=') and contains(@href, 'ownerId={int(activity_id)}')]",
-            f"//a[contains(@href, '{int(activity_id)}') and (contains(@href, 'download') or contains(@href, 'crm_show_file.php'))]",
+            f"//a[contains(@href, '{int(activity_id)}') and (contains(@href, 'download') or contains(@href, 'crm_show_file.php'))]",  # noqa: E501
         ]
         for xp in link_xpaths:
             try:
@@ -964,7 +1105,9 @@ def download_call_from_deal_timeline_via_ui(
                         if _looks_like_invalid_owner_page(driver):
                             continue
                     else:
-                        driver.execute_script("arguments[0].scrollIntoView({block:'center'});", link)
+                        driver.execute_script(
+                            "arguments[0].scrollIntoView({block:'center'});", link
+                        )
                         driver.execute_script("arguments[0].click();", link)
                 except Exception:
                     continue
@@ -977,8 +1120,14 @@ def download_call_from_deal_timeline_via_ui(
             (By.CSS_SELECTOR, f"[data-id='{int(activity_id)}']"),
             (By.CSS_SELECTOR, f"[data-entity-id='{int(activity_id)}']"),
             (By.XPATH, f"//*[contains(@data-id, '{int(activity_id)}')]"),
-            (By.XPATH, f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]"),
-            (By.XPATH, f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]"),
+            (
+                By.XPATH,
+                f"//a[contains(@href, 'activity/view/{int(activity_id)}') or contains(@href, '{int(activity_id)}')]",  # noqa: E501
+            ),
+            (
+                By.XPATH,
+                f"//a[contains(@href, 'crm_show_file.php') and contains(@href, 'ownerId={int(activity_id)}')]",  # noqa: E501
+            ),
         ]
         for by, sel in card_locators:
             try:
@@ -986,7 +1135,7 @@ def download_call_from_deal_timeline_via_ui(
                 try:
                     card = el.find_element(
                         By.XPATH,
-                        "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",
+                        "ancestor-or-self::*[contains(@class,'crm-entity-stream-section') or contains(@class,'crm-timeline') or contains(@class,'crm-entity-stream-content')][1]",  # noqa: E501
                     )
                 except Exception:
                     card = el
@@ -1000,7 +1149,8 @@ def download_call_from_deal_timeline_via_ui(
             return UiDownloadResult(
                 ok=False,
                 path=None,
-                error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}" + (f"; {details}" if details else ""),
+                error=f"Не нашёл блок звонка в таймлайне по activity_id={activity_id}"
+                + (f"; {details}" if details else ""),
             )
 
         try:
@@ -1011,8 +1161,14 @@ def download_call_from_deal_timeline_via_ui(
 
         menu_btn = None
         menu_locators = [
-            (By.XPATH, ".//button[contains(@aria-label,'Еще') or contains(@title,'Еще') or contains(@aria-label,'More') or contains(@title,'More')]"),
-            (By.XPATH, ".//*[contains(@class,'ui-icon-set') and (contains(@class,'--more') or contains(@class,'more'))]"),
+            (
+                By.XPATH,
+                ".//button[contains(@aria-label,'Еще') or contains(@title,'Еще') or contains(@aria-label,'More') or contains(@title,'More')]",  # noqa: E501
+            ),
+            (
+                By.XPATH,
+                ".//*[contains(@class,'ui-icon-set') and (contains(@class,'--more') or contains(@class,'more'))]",  # noqa: E501
+            ),
             (By.XPATH, ".//button[contains(., '…') or contains(., '...')]"),
             (By.XPATH, ".//*[contains(@class,'menu') or contains(@class,'more')]"),
         ]
@@ -1025,7 +1181,9 @@ def download_call_from_deal_timeline_via_ui(
                 continue
 
         if not menu_btn:
-            return UiDownloadResult(ok=False, path=None, error=f"Не нашёл кнопку меню у звонка; {_page_context(driver)}")
+            return UiDownloadResult(
+                ok=False, path=None, error=f"Не нашёл кнопку меню у звонка; {_page_context(driver)}"
+            )
 
         try:
             menu_btn.click()
@@ -1033,14 +1191,18 @@ def download_call_from_deal_timeline_via_ui(
             try:
                 driver.execute_script("arguments[0].click();", menu_btn)
             except Exception as e:
-                return UiDownloadResult(ok=False, path=None, error=f"Не удалось кликнуть меню: {e}; {_page_context(driver)}")
+                return UiDownloadResult(
+                    ok=False,
+                    path=None,
+                    error=f"Не удалось кликнуть меню: {e}; {_page_context(driver)}",
+                )
 
         try:
             dl_item = wait.until(
                 EC.element_to_be_clickable(
                     (
                         By.XPATH,
-                        "//*[contains(@class,'menu-popup') or contains(@class,'ui-context-menu') or contains(@class,'popup-window')]//*[contains(., 'Скачать') or contains(., 'Download')]",
+                        "//*[contains(@class,'menu-popup') or contains(@class,'ui-context-menu') or contains(@class,'popup-window')]//*[contains(., 'Скачать') or contains(., 'Download')]",  # noqa: E501
                     )
                 )
             )
@@ -1048,7 +1210,9 @@ def download_call_from_deal_timeline_via_ui(
         except Exception:
             clicked = _click_first_download_control(driver, By)
             if not clicked:
-                return UiDownloadResult(ok=False, path=None, error=f"Не нашёл пункт 'Скачать'; {_page_context(driver)}")
+                return UiDownloadResult(
+                    ok=False, path=None, error=f"Не нашёл пункт 'Скачать'; {_page_context(driver)}"
+                )
 
         res = wait_download(before, seconds=timeout_sec)
         if res.ok or res.path:

@@ -1,9 +1,10 @@
-﻿import asyncio
-from bitrix24_api import Bitrix24API
+import asyncio
 from datetime import datetime, timedelta
-import pandas as pd
-import config
 
+import pandas as pd
+
+import config
+from bitrix24_api import Bitrix24API
 from logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -17,12 +18,23 @@ class ContactsManager:
         """Получить список контактов с фильтрацией (асинхронно)"""
         params = {
             "select": [
-                "ID", "NAME", "LAST_NAME", "SECOND_NAME",
-                "POST", "COMPANY_ID", "ASSIGNED_BY_ID",
-                "CREATED_BY_ID", "DATE_CREATE", "DATE_MODIFY",
-                "PHONE", "EMAIL", "WEB", "IM", "COMMENTS"
+                "ID",
+                "NAME",
+                "LAST_NAME",
+                "SECOND_NAME",
+                "POST",
+                "COMPANY_ID",
+                "ASSIGNED_BY_ID",
+                "CREATED_BY_ID",
+                "DATE_CREATE",
+                "DATE_MODIFY",
+                "PHONE",
+                "EMAIL",
+                "WEB",
+                "IM",
+                "COMMENTS",
             ],
-            "order": {"DATE_CREATE": "DESC"}
+            "order": {"DATE_CREATE": "DESC"},
         }
 
         if filter_params:
@@ -35,9 +47,7 @@ class ContactsManager:
         """Получить контакты за последние N дней"""
         date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        filter_params = {
-            ">=DATE_CREATE": date_from
-        }
+        filter_params = {">=DATE_CREATE": date_from}
 
         return await self.get_contacts(filter_params)
 
@@ -48,9 +58,7 @@ class ContactsManager:
 
     async def search_contacts(self, query: str) -> list:
         """Поиск контактов по имени, email или телефону"""
-        filter_params = {
-            "%NAME": query
-        }
+        filter_params = {"%NAME": query}
 
         return await self.get_contacts(filter_params)
 
@@ -58,7 +66,7 @@ class ContactsManager:
         """Экспорт контактов в Excel"""
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{config.REPORTS_DIR}/contacts_{timestamp}.xlsx"     
+            filename = f"{config.REPORTS_DIR}/contacts_{timestamp}.xlsx"
 
         processed_contacts = []
         for contact in contacts:
@@ -76,9 +84,13 @@ class ContactsManager:
 
         if not df.empty:
             if "DATE_CREATE" in df.columns:
-                df["DATE_CREATE"] = pd.to_datetime(df["DATE_CREATE"], utc=True, errors="coerce").dt.tz_localize(None)
+                df["DATE_CREATE"] = pd.to_datetime(
+                    df["DATE_CREATE"], utc=True, errors="coerce"
+                ).dt.tz_localize(None)
             if "DATE_MODIFY" in df.columns:
-                df["DATE_MODIFY"] = pd.to_datetime(df["DATE_MODIFY"], utc=True, errors="coerce").dt.tz_localize(None)        
+                df["DATE_MODIFY"] = pd.to_datetime(
+                    df["DATE_MODIFY"], utc=True, errors="coerce"
+                ).dt.tz_localize(None)
 
         df.to_excel(filename, index=False, engine="openpyxl")
         logger.info(f"[OK] Отчет сохранен: {filename}")
@@ -93,7 +105,7 @@ class ContactsManager:
             "total": len(contacts),
             "with_phone": sum(1 for c in contacts if c.get("PHONE")),
             "with_email": sum(1 for c in contacts if c.get("EMAIL")),
-            "with_company": sum(1 for c in contacts if c.get("COMPANY_ID"))
+            "with_company": sum(1 for c in contacts if c.get("COMPANY_ID")),
         }
 
         return stats

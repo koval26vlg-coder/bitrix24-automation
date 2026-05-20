@@ -1,23 +1,24 @@
-﻿import httpx
 import asyncio
 import random
-from typing import Dict, List, Any, Optional
-import config
+from typing import Any
 
+import httpx
+
+import config
 from logging_setup import get_logger
 
 logger = get_logger(__name__)
 
 
 class Bitrix24API:
-    def __init__(self, webhook_url: Optional[str] = None):
+    def __init__(self, webhook_url: str | None = None):
         self.webhook_url = webhook_url or config.BITRIX24_WEBHOOK
         if not self.webhook_url:
             raise ValueError("Webhook URL не настроен. Проверьте файл .env")
 
         self.client = httpx.AsyncClient(
             headers={"Content-Type": "application/json"},
-            timeout=float(getattr(config, "BITRIX24_TIMEOUT_SEC", 30) or 30)
+            timeout=float(getattr(config, "BITRIX24_TIMEOUT_SEC", 30) or 30),
         )
 
     async def __aenter__(self):
@@ -30,7 +31,7 @@ class Bitrix24API:
         """Закрыть клиент httpx"""
         await self.client.aclose()
 
-    async def call(self, method: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    async def call(self, method: str, params: dict[str, Any] = None) -> dict[str, Any]:
         """Асинхронный вызов метода Bitrix24 REST API"""
         url = f"{self.webhook_url}{method}"
 
@@ -38,7 +39,7 @@ class Bitrix24API:
         base_backoff = float(getattr(config, "BITRIX24_BACKOFF_BASE_SEC", 0.6) or 0.6)
         max_backoff = float(getattr(config, "BITRIX24_BACKOFF_MAX_SEC", 20.0) or 20.0)
 
-        last_error: Optional[str] = None
+        last_error: str | None = None
         for attempt in range(1, max_attempts + 1):
             try:
                 response = await self.client.post(url, json=params or {})
@@ -59,7 +60,7 @@ class Bitrix24API:
                         details = data.get("error_description") or data.get("error")
                     details = details or response.text
                     last_error = f"HTTP {response.status_code} {method}: {details}"
-                    
+
                     retry_after = response.headers.get("Retry-After")
                     sleep_for = None
                     if retry_after:
@@ -67,20 +68,26 @@ class Bitrix24API:
                             sleep_for = float(retry_after)
                         except Exception:
                             sleep_for = None
-                    
+
                     if sleep_for is None:
-                        sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
-                    
-                    logger.warning(f"[WARN] Retry {attempt}/{max_attempts} {method} (request_id={request_id}): {last_error}; sleep={sleep_for:.2f}s")
+                        sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (
+                            0.7 + random.random() * 0.6
+                        )
+
+                    logger.warning(
+                        f"[WARN] Retry {attempt}/{max_attempts} {method} (request_id={request_id}): {last_error}; sleep={sleep_for:.2f}s"  # noqa: E501
+                    )
                     if attempt < max_attempts:
                         await asyncio.sleep(sleep_for)
                         continue
 
                 if response.status_code >= 400:
-                    error_description = data.get("error_description") if isinstance(data, dict) else None
+                    error_description = (
+                        data.get("error_description") if isinstance(data, dict) else None
+                    )
                     details = error_description or response.text
                     raise Exception(
-                        f"HTTP {response.status_code} при вызове {method} (request_id={request_id}): {details}"
+                        f"HTTP {response.status_code} при вызове {method} (request_id={request_id}): {details}"  # noqa: E501
                     )
 
                 if isinstance(data, dict) and "error" in data:
@@ -95,19 +102,25 @@ class Bitrix24API:
 
             except (httpx.TimeoutException, httpx.ConnectError) as e:
                 last_error = f"{type(e).__name__}: {str(e)}"
-                sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
-                logger.warning(f"[WARN] Retry {attempt}/{max_attempts} {method}: {last_error}; sleep={sleep_for:.2f}s")
+                sleep_for = min(max_backoff, base_backoff * (2 ** (attempt - 1))) * (
+                    0.7 + random.random() * 0.6
+                )
+                logger.warning(
+                    f"[WARN] Retry {attempt}/{max_attempts} {method}: {last_error}; sleep={sleep_for:.2f}s"  # noqa: E501
+                )
                 if attempt < max_attempts:
                     await asyncio.sleep(sleep_for)
                     continue
-                raise Exception(f"Ошибка запроса к API после {max_attempts} попыток: {last_error}")
+                raise Exception(
+                    f"Ошибка запроса к API после {max_attempts} попыток: {last_error}"
+                ) from e
             except httpx.RequestError as e:
-                raise Exception(f"Ошибка запроса к API: {str(e)}")
+                raise Exception(f"Ошибка запроса к API: {str(e)}") from e
 
         error_text = last_error or "unknown error"
         raise Exception(f"Ошибка запроса к API: {error_text}")
 
-    async def call_batch(self, calls: Dict[str, Dict]) -> Dict[str, Any]:
+    async def call_batch(self, calls: dict[str, dict]) -> dict[str, Any]:
         """Асинхронный пакетный вызов методов (до 50 за раз)"""
         cmd = {}
         for key, call_data in calls.items():
@@ -121,7 +134,7 @@ class Bitrix24API:
 
         return await self.call("batch", {"cmd": cmd})
 
-    async def get_all(self, method: str, params: Dict[str, Any] = None) -> List[Dict]:
+    async def get_all(self, method: str, params: dict[str, Any] = None) -> list[dict]:
         """Получить все записи с автоматической пагинацией (асинхронно)"""
         all_items = []
         start = 0

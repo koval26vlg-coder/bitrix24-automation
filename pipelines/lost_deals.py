@@ -3,17 +3,17 @@ from __future__ import annotations
 import json
 import re
 from collections import Counter, defaultdict
+from collections.abc import Iterable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 
 from bitrix.api import Bitrix24API
+from logging_setup import get_logger
 from pipelines.calls import user_name_map
 from pipelines.deals import deal_id_from_report_row, deal_url_from_id, normalize_deal_filter_dates
 from pipelines.stage_history import fetch_stage_name_map
 from pipelines.stages import DEFAULT_STAGE_NAMES, safe_int, stage_display_name
-
-from logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -36,7 +36,7 @@ LOST_DEAL_SELECT = [
     "COMPANY_ID",
 ]
 
-REASON_RULES: List[Tuple[str, str, List[str]]] = [
+REASON_RULES: list[tuple[str, str, list[str]]] = [
     (
         "Цена/бюджет",
         r"дорог|дороже|цена|стоим|прайс|бюджет|дешев|скидк|финанс|денег|оплат|сумм",
@@ -131,7 +131,7 @@ def _clean_text(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value or "")).strip()
 
 
-def _parse_dt(value: Any) -> Optional[datetime]:
+def _parse_dt(value: Any) -> datetime | None:
     if not value:
         return None
     try:
@@ -147,7 +147,7 @@ def _as_float(value: Any) -> float:
         return 0.0
 
 
-def _lifetime_days(deal: Dict[str, Any]) -> Optional[float]:
+def _lifetime_days(deal: dict[str, Any]) -> float | None:
     created = _parse_dt(deal.get("DATE_CREATE"))
     closed = _parse_dt(deal.get("CLOSEDATE")) or _parse_dt(deal.get("DATE_MODIFY"))
     if not created or not closed:
@@ -162,7 +162,7 @@ def _stage_filter_keys() -> set[str]:
     return {"STAGE_ID", "=STAGE_ID", "@STAGE_ID", "!STAGE_ID", "!=STAGE_ID"}
 
 
-def _infer_category_id(stage_value: Any) -> Optional[int]:
+def _infer_category_id(stage_value: Any) -> int | None:
     values: Iterable[Any]
     if isinstance(stage_value, list):
         values = stage_value
@@ -175,8 +175,8 @@ def _infer_category_id(stage_value: Any) -> Optional[int]:
     return None
 
 
-def lost_filter_from_base(base_filter: Dict[str, Any]) -> Dict[str, Any]:
-    out: Dict[str, Any] = {}
+def lost_filter_from_base(base_filter: dict[str, Any]) -> dict[str, Any]:
+    out: dict[str, Any] = {}
     removed_stage_value: Any = None
     for key, value in dict(base_filter or {}).items():
         if key in _stage_filter_keys():
@@ -195,7 +195,7 @@ def lost_filter_from_base(base_filter: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _fallback_lost_stage_ids(category_id: Any = None) -> List[str]:
+def _fallback_lost_stage_ids(category_id: Any = None) -> list[str]:
     category = safe_int(category_id)
     prefix = f"C{category}:" if category is not None and category > 0 else ""
     ids = []
@@ -213,7 +213,7 @@ def _fallback_lost_stage_ids(category_id: Any = None) -> List[str]:
     return ids or ["LOSE"]
 
 
-def _fallback_lost_filter(base_filter: Dict[str, Any]) -> Dict[str, Any]:
+def _fallback_lost_filter(base_filter: dict[str, Any]) -> dict[str, Any]:
     out = {k: v for k, v in dict(base_filter or {}).items() if k not in _stage_filter_keys()}
     out.pop("=STAGE_SEMANTIC_ID", None)
     out.pop("STAGE_SEMANTIC_ID", None)
@@ -223,9 +223,9 @@ def _fallback_lost_filter(base_filter: Dict[str, Any]) -> Dict[str, Any]:
 
 async def _fetch_deals_page(
     api: Bitrix24API,
-    flt: Dict[str, Any],
-    start: Optional[int],
-) -> Dict[str, Any]:
+    flt: dict[str, Any],
+    start: int | None,
+) -> dict[str, Any]:
     return await api.call(
         "crm.deal.list",
         {
@@ -237,14 +237,16 @@ async def _fetch_deals_page(
     )
 
 
-async def fetch_lost_deals(api: Bitrix24API, flt: Dict[str, Any], limit: int = 500) -> List[Dict[str, Any]]:
+async def fetch_lost_deals(
+    api: Bitrix24API, flt: dict[str, Any], limit: int = 500
+) -> list[dict[str, Any]]:
     max_items = max(0, int(limit or 0))
     if max_items <= 0:
         return []
 
-    async def fetch_with_filter(active_filter: Dict[str, Any]) -> List[Dict[str, Any]]:
-        deals: List[Dict[str, Any]] = []
-        start: Optional[int] = 0
+    async def fetch_with_filter(active_filter: dict[str, Any]) -> list[dict[str, Any]]:
+        deals: list[dict[str, Any]] = []
+        start: int | None = 0
         while start is not None and len(deals) < max_items:
             res = await _fetch_deals_page(api, active_filter, start)
             chunk = res.get("result", []) or []
@@ -266,8 +268,8 @@ async def fetch_lost_deals(api: Bitrix24API, flt: Dict[str, Any], limit: int = 5
         return await fetch_with_filter(fallback)
 
 
-def result_text_index(results: List[Dict[str, Any]]) -> Dict[str, str]:
-    index: Dict[str, List[str]] = defaultdict(list)
+def result_text_index(results: list[dict[str, Any]]) -> dict[str, str]:
+    index: dict[str, list[str]] = defaultdict(list)
     fields = [
         "conversation_meaning",
         "client_work_conclusion",
@@ -298,7 +300,7 @@ def _evidence_snippet(text: str, match: re.Match[str], radius: int = 90) -> str:
     return text[start:end].strip(" .;,\n\t")
 
 
-def classify_loss_reason(text: str) -> Dict[str, Any]:
+def classify_loss_reason(text: str) -> dict[str, Any]:
     clean = _clean_text(text)
     lowered = clean.lower()
     for category, pattern, tools in REASON_RULES:
@@ -322,27 +324,29 @@ def classify_loss_reason(text: str) -> Dict[str, Any]:
 
 def conversion_next_action(category: str) -> str:
     actions = {
-        "Цена/бюджет": "Проверить, была ли до цены показана выгода, окупаемость и альтернатива пакетами.",
-        "Нет связи с клиентом": "Ввести контроль касаний: звонок, сообщение, письмо и задача на следующий контакт.",
-        "Нет потребности/не актуально": "Усилить квалификацию на первом контакте и переводить неготовых клиентов в прогрев.",
-        "Конкурент или уже купили": "Собрать причины выбора конкурента и обновить battlecard для менеджеров.",
-        "Отложили решение": "Фиксировать дату возврата и следующий шаг в CRM, а не закрывать без плана касания.",
-        "Техническое несоответствие": "Подключать тех. пресейл до КП и вести список типовых ограничений.",
-        "КП/счет/документы не доведены": "Контролировать отправку КП, защиту КП и follow-up после счета.",
-        "Проверка РОП/качество лида": "Разобрать источник лида и обязательную причину отклонения с РОП.",
-        "Дубль/ошибка": "Настроить контроль дублей и убрать ошибочные карточки из конверсионной аналитики.",
+        "Цена/бюджет": "Проверить, была ли до цены показана выгода, окупаемость и альтернатива пакетами.",  # noqa: E501
+        "Нет связи с клиентом": "Ввести контроль касаний: звонок, сообщение, письмо и задача на следующий контакт.",  # noqa: E501
+        "Нет потребности/не актуально": "Усилить квалификацию на первом контакте и переводить неготовых клиентов в прогрев.",  # noqa: E501
+        "Конкурент или уже купили": "Собрать причины выбора конкурента и обновить battlecard для менеджеров.",  # noqa: E501
+        "Отложили решение": "Фиксировать дату возврата и следующий шаг в CRM, а не закрывать без плана касания.",  # noqa: E501
+        "Техническое несоответствие": "Подключать тех. пресейл до КП и вести список типовых ограничений.",  # noqa: E501
+        "КП/счет/документы не доведены": "Контролировать отправку КП, защиту КП и follow-up после счета.",  # noqa: E501
+        "Проверка РОП/качество лида": "Разобрать источник лида и обязательную причину отклонения с РОП.",  # noqa: E501
+        "Дубль/ошибка": "Настроить контроль дублей и убрать ошибочные карточки из конверсионной аналитики.",  # noqa: E501
     }
-    return actions.get(category, "Добавить обязательную причину проигрыша и разбирать сделки без причины отдельно.")
+    return actions.get(
+        category, "Добавить обязательную причину проигрыша и разбирать сделки без причины отдельно."
+    )
 
 
 def lost_deal_row(
     *,
-    deal: Dict[str, Any],
-    stage_map: Dict[str, str],
-    manager_names: Dict[int, str],
+    deal: dict[str, Any],
+    stage_map: dict[str, str],
+    manager_names: dict[int, str],
     domain: str,
     extra_text: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     deal_id = str(deal.get("ID") or "").strip()
     stage_id = str(deal.get("STAGE_ID") or "").strip()
     manager_id = safe_int(deal.get("ASSIGNED_BY_ID"))
@@ -374,18 +378,29 @@ def lost_deal_row(
     return row
 
 
-def build_lost_reason_summary(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def build_lost_reason_summary(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     total = max(1, len(rows))
-    by_reason: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    by_reason: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         by_reason[str(row.get("loss_reason_category") or "Причина не указана")].append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for reason, reason_rows in sorted(by_reason.items(), key=lambda item: (-len(item[1]), item[0])):
         amount = round(sum(float(r.get("lost_amount") or 0.0) for r in reason_rows), 2)
-        lifetime_values = [float(r["lost_lifetime_days"]) for r in reason_rows if r.get("lost_lifetime_days") is not None]
+        lifetime_values = [
+            float(r["lost_lifetime_days"])
+            for r in reason_rows
+            if r.get("lost_lifetime_days") is not None
+        ]
         manager_counts = Counter(str(r.get("lost_manager_name") or "") for r in reason_rows)
-        tools = next((str(r.get("conversion_tools") or "") for r in reason_rows if r.get("conversion_tools")), "")
+        tools = next(
+            (
+                str(r.get("conversion_tools") or "")
+                for r in reason_rows
+                if r.get("conversion_tools")
+            ),
+            "",
+        )
         action = conversion_next_action(reason)
         out.append(
             {
@@ -393,10 +408,14 @@ def build_lost_reason_summary(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 "lost_deals_count": len(reason_rows),
                 "lost_deals_share": round(len(reason_rows) / total * 100.0, 2),
                 "lost_amount": amount,
-                "lost_avg_lifetime_days": round(sum(lifetime_values) / len(lifetime_values), 2)
-                if lifetime_values
-                else None,
-                "lost_top_managers": ", ".join([f"{name}: {count}" for name, count in manager_counts.most_common(3) if name]),
+                "lost_avg_lifetime_days": (
+                    round(sum(lifetime_values) / len(lifetime_values), 2)
+                    if lifetime_values
+                    else None
+                ),
+                "lost_top_managers": ", ".join(
+                    [f"{name}: {count}" for name, count in manager_counts.most_common(3) if name]
+                ),
                 "conversion_tools": tools,
                 "conversion_next_action": action,
             }
@@ -404,8 +423,8 @@ def build_lost_reason_summary(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return out
 
 
-def build_conversion_action_rows(summary_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def build_conversion_action_rows(summary_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for index, row in enumerate(summary_rows, 1):
         share = float(row.get("lost_deals_share") or 0.0)
         count = int(row.get("lost_deals_count") or 0)
@@ -424,7 +443,9 @@ def build_conversion_action_rows(summary_rows: List[Dict[str, Any]]) -> List[Dic
                 "lost_deals_share": row.get("lost_deals_share"),
                 "conversion_tools": row.get("conversion_tools"),
                 "conversion_next_action": row.get("conversion_next_action"),
-                "conversion_expected_effect": expected_conversion_effect(str(row.get("loss_reason_category") or "")),
+                "conversion_expected_effect": expected_conversion_effect(
+                    str(row.get("loss_reason_category") or "")
+                ),
             }
         )
     return out
@@ -433,30 +454,34 @@ def build_conversion_action_rows(summary_rows: List[Dict[str, Any]]) -> List[Dic
 def expected_conversion_effect(category: str) -> str:
     effects = {
         "Цена/бюджет": "Больше сделок должны доходить до защиты ценности и альтернативного КП.",
-        "Нет связи с клиентом": "Снижение потерь из-за недозвона и повышение доли повторных контактов.",
-        "Нет потребности/не актуально": "Меньше времени на нецелевые сделки и больше прогрева для отложенного спроса.",
+        "Нет связи с клиентом": "Снижение потерь из-за недозвона и повышение доли повторных контактов.",  # noqa: E501
+        "Нет потребности/не актуально": "Меньше времени на нецелевые сделки и больше прогрева для отложенного спроса.",  # noqa: E501
         "Конкурент или уже купили": "Выше шанс вернуть клиента в сравнение до финального отказа.",
-        "Отложили решение": "Больше сделок останутся в контролируемом цикле касаний вместо закрытия без плана.",
+        "Отложили решение": "Больше сделок останутся в контролируемом цикле касаний вместо закрытия без плана.",  # noqa: E501
         "Техническое несоответствие": "Меньше поздних отказов после КП за счет раннего пресейла.",
         "КП/счет/документы не доведены": "Больше оплат после КП за счет обязательного follow-up.",
     }
-    return effects.get(category, "Повышение прозрачности причин проигрыша и качества управленческих решений.")
+    return effects.get(
+        category, "Повышение прозрачности причин проигрыша и качества управленческих решений."
+    )
 
 
 async def build_lost_deals_analysis(
     *,
     api: Bitrix24API,
     args: Any,
-    results: List[Dict[str, Any]],
-    stage_map: Dict[str, str],
-) -> Dict[str, List[Dict[str, Any]]]:
+    results: list[dict[str, Any]],
+    stage_map: dict[str, str],
+) -> dict[str, list[dict[str, Any]]]:
     if not getattr(args, "lost_deals_analysis", False):
         return {"rows": [], "summary_rows": [], "action_rows": []}
     if getattr(args, "mode", None) != "filter" or not getattr(args, "filter_json", None):
         return {"rows": [], "summary_rows": [], "action_rows": []}
 
     try:
-        base_filter = normalize_deal_filter_dates(json.loads(Path(args.filter_json).read_text(encoding="utf-8")))
+        base_filter = normalize_deal_filter_dates(
+            json.loads(Path(args.filter_json).read_text(encoding="utf-8"))
+        )
     except Exception as e:
         logger.warning(f"[WARN] Не удалось прочитать фильтр для анализа проигранных сделок: {e}")
         return {"rows": [], "summary_rows": [], "action_rows": []}
@@ -470,7 +495,9 @@ async def build_lost_deals_analysis(
         return {"rows": [], "summary_rows": [], "action_rows": []}
 
     lost_stage_ids = [str(deal.get("STAGE_ID") or "") for deal in deals if deal.get("STAGE_ID")]
-    missing_stage_ids = [stage_id for stage_id in lost_stage_ids if stage_id and stage_id not in stage_map]
+    missing_stage_ids = [
+        stage_id for stage_id in lost_stage_ids if stage_id and stage_id not in stage_map
+    ]
     if missing_stage_ids:
         try:
             stage_map = {**stage_map, **await fetch_stage_name_map(api, missing_stage_ids)}

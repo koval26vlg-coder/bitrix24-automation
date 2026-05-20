@@ -77,7 +77,9 @@ def test_script_profile_rows_show_match_and_critical_errors():
 
     script_rows = build_script_score_rows([bad_row])
     profile_rows = build_script_profile_rows(script_rows)
-    objection_profile = next(row for row in profile_rows if row["script_profile_id"] == "objection_management")
+    objection_profile = next(
+        row for row in profile_rows if row["script_profile_id"] == "objection_management"
+    )
 
     assert objection_profile["script_profile_status"] == "Не соответствует"
     assert objection_profile["script_critical_errors_count"] > 0

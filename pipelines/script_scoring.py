@@ -13,7 +13,6 @@ from pipelines.script_profiles import (
 )
 from pipelines.stages import stage_display_name
 
-
 SCRIPT_SCORE_COLUMNS = [
     "deal_url",
     "stage_name",
@@ -75,7 +74,7 @@ SCRIPT_GAP_COLUMNS = [
 SCRIPT_STEP_METADATA: dict[str, dict[str, Any]] = {
     "contact_greeting": {
         "required_action": "Поприветствовать клиента и представиться в начале разговора.",
-        "recommendation": "Сделать обязательную первую фразу: приветствие, имя менеджера, компания.",
+        "recommendation": "Сделать обязательную первую фразу: приветствие, имя менеджера, компания.",  # noqa: E501
         "weight": 1.0,
     },
     "contact_permission": {
@@ -95,47 +94,47 @@ SCRIPT_STEP_METADATA: dict[str, dict[str, Any]] = {
     },
     "needs_question_variety": {
         "required_action": "Задать серию уточняющих вопросов разных типов.",
-        "recommendation": "До презентации задать минимум 3 вопроса: задача, срок, текущий способ, критерии выбора.",
+        "recommendation": "До презентации задать минимум 3 вопроса: задача, срок, текущий способ, критерии выбора.",  # noqa: E501
         "weight": 1.4,
     },
     "needs_sequence": {
         "required_action": "Выявлять потребность последовательно, не перескакивая между темами.",
-        "recommendation": "Держать порядок: задача клиента, текущая ситуация, ограничения, критерии решения.",
+        "recommendation": "Держать порядок: задача клиента, текущая ситуация, ограничения, критерии решения.",  # noqa: E501
         "weight": 1.1,
     },
     "needs_active_listening": {
         "required_action": "Подтверждать понимание через парафраз, эхо или краткое резюме.",
-        "recommendation": "После ответа клиента проговаривать: 'правильно понимаю, что...' и фиксировать вывод.",
+        "recommendation": "После ответа клиента проговаривать: 'правильно понимаю, что...' и фиксировать вывод.",  # noqa: E501
         "weight": 1.0,
     },
     "needs_dialog_control": {
         "required_action": "Управлять ходом диалога и мягко вести клиента к следующему этапу.",
-        "recommendation": "Использовать связки: 'давайте уточню', 'после этого предложу вариант', 'следующий шаг'.",
+        "recommendation": "Использовать связки: 'давайте уточню', 'после этого предложу вариант', 'следующий шаг'.",  # noqa: E501
         "weight": 0.9,
     },
     "needs_before_offer": {
         "required_action": "Не презентовать решение до формирования понятной потребности.",
-        "recommendation": "Сначала подтвердить задачу клиента, затем давать предложение под эту задачу.",
+        "recommendation": "Сначала подтвердить задачу клиента, затем давать предложение под эту задачу.",  # noqa: E501
         "weight": 1.3,
     },
     "presentation_product_knowledge": {
         "required_action": "Показать знание продукта, услуги и применимых условий.",
-        "recommendation": "Говорить конкретно: продукт, условия, сроки, ограничения, что входит в услугу.",
+        "recommendation": "Говорить конкретно: продукт, условия, сроки, ограничения, что входит в услугу.",  # noqa: E501
         "weight": 1.0,
     },
     "presentation_benefits": {
         "required_action": "Связать презентацию с выгодой и задачей клиента.",
-        "recommendation": "Переводить свойства продукта в пользу для клиента: экономия, скорость, снижение риска.",
+        "recommendation": "Переводить свойства продукта в пользу для клиента: экономия, скорость, снижение риска.",  # noqa: E501
         "weight": 1.2,
     },
     "presentation_comparison": {
         "required_action": "При необходимости сравнить решение с альтернативами или конкурентами.",
-        "recommendation": "Подготовить 2-3 честных отличия компании и продукта от типичных альтернатив.",
+        "recommendation": "Подготовить 2-3 честных отличия компании и продукта от типичных альтернатив.",  # noqa: E501
         "weight": 0.7,
     },
     "presentation_truthful": {
         "required_action": "Отвечать на вопросы клиента полно, честно и без размытых обещаний.",
-        "recommendation": "Если точного ответа нет, фиксировать, что менеджер уточнит срок/условия и вернётся.",
+        "recommendation": "Если точного ответа нет, фиксировать, что менеджер уточнит срок/условия и вернётся.",  # noqa: E501
         "weight": 1.0,
     },
     "presentation_examples": {
@@ -145,61 +144,61 @@ SCRIPT_STEP_METADATA: dict[str, dict[str, Any]] = {
     },
     "presentation_company_advantages": {
         "required_action": "Обозначить преимущества работы с компанией.",
-        "recommendation": "Говорить не только о продукте, но и о сопровождении, поддержке, опыте, гарантии.",
+        "recommendation": "Говорить не только о продукте, но и о сопровождении, поддержке, опыте, гарантии.",  # noqa: E501
         "weight": 0.8,
     },
     "objection_calm": {
         "required_action": "Спокойно принять возражение и не спорить с клиентом.",
-        "recommendation": "Начинать ответ с признания позиции клиента: 'понимаю', 'логичный вопрос'.",
+        "recommendation": "Начинать ответ с признания позиции клиента: 'понимаю', 'логичный вопрос'.",  # noqa: E501
         "weight": 1.0,
         "objection_only": True,
     },
     "objection_true_reason": {
         "required_action": "Выяснить истинную причину возражения.",
-        "recommendation": "После возражения задавать уточнение: 'что именно смущает?', 'с чем сравниваете?'.",
+        "recommendation": "После возражения задавать уточнение: 'что именно смущает?', 'с чем сравниваете?'.",  # noqa: E501
         "weight": 1.2,
         "objection_only": True,
     },
     "objection_solution": {
         "required_action": "Дать решение или аргумент с учётом сомнений клиента.",
-        "recommendation": "Отрабатывать по схеме: признать, уточнить, аргументировать, закрепить действие.",
+        "recommendation": "Отрабатывать по схеме: признать, уточнить, аргументировать, закрепить действие.",  # noqa: E501
         "weight": 1.5,
         "objection_only": True,
     },
     "objection_closed_before_next": {
         "required_action": "Закрыть сомнение до перехода к следующему этапу.",
-        "recommendation": "Проверять после аргумента: 'такой вариант вам подходит?', затем фиксировать следующий шаг.",
+        "recommendation": "Проверять после аргумента: 'такой вариант вам подходит?', затем фиксировать следующий шаг.",  # noqa: E501
         "weight": 1.2,
         "objection_only": True,
     },
     "closing_summary": {
         "required_action": "Кратко резюмировать договорённости по итогам разговора.",
-        "recommendation": "В конце звонка проговаривать: что решили, что отправляем, кто и когда делает следующий шаг.",
+        "recommendation": "В конце звонка проговаривать: что решили, что отправляем, кто и когда делает следующий шаг.",  # noqa: E501
         "weight": 1.0,
     },
     "closing_next_step": {
         "required_action": "Обозначить дальнейшие шаги.",
-        "recommendation": "Каждый разговор завершать конкретным действием: отправить КП, счёт, перезвонить, согласовать.",
+        "recommendation": "Каждый разговор завершать конкретным действием: отправить КП, счёт, перезвонить, согласовать.",  # noqa: E501
         "weight": 1.4,
     },
     "closing_next_comm_time": {
         "required_action": "Определить тип и срок следующей коммуникации.",
-        "recommendation": "Фиксировать не просто 'созвонимся', а дату/время или понятный срок возврата.",
+        "recommendation": "Фиксировать не просто 'созвонимся', а дату/время или понятный срок возврата.",  # noqa: E501
         "weight": 1.2,
     },
     "closing_questions": {
         "required_action": "Уточнить, остались ли вопросы или сомнения.",
-        "recommendation": "Перед завершением спрашивать: 'остались вопросы?', 'что ещё нужно уточнить?'.",
+        "recommendation": "Перед завершением спрашивать: 'остались вопросы?', 'что ещё нужно уточнить?'.",  # noqa: E501
         "weight": 0.8,
     },
     "closing_goodbye": {
         "required_action": "Корректно завершить разговор и попрощаться.",
-        "recommendation": "Завершать звонок вежливой финальной фразой и подтверждением следующего контакта.",
+        "recommendation": "Завершать звонок вежливой финальной фразой и подтверждением следующего контакта.",  # noqa: E501
         "weight": 0.6,
     },
     "impression_client_oriented": {
         "required_action": "Показывать ориентацию на задачу и интерес клиента.",
-        "recommendation": "Чаще связывать предложения с формулировками клиента: 'для вашей задачи'.",
+        "recommendation": "Чаще связывать предложения с формулировками клиента: 'для вашей задачи'.",  # noqa: E501
         "weight": 1.0,
     },
     "impression_proactive": {
@@ -209,27 +208,27 @@ SCRIPT_STEP_METADATA: dict[str, dict[str, Any]] = {
     },
     "impression_speech_clean": {
         "required_action": "Говорить ясно, без заметных речевых паразитов и хаотичных пауз.",
-        "recommendation": "Разбирать записи с большим количеством запинок и заменять неуверенные формулировки.",
+        "recommendation": "Разбирать записи с большим количеством запинок и заменять неуверенные формулировки.",  # noqa: E501
         "weight": 0.8,
     },
     "impression_preparation": {
         "required_action": "Показать подготовку: понимать, кому и зачем звонит менеджер.",
-        "recommendation": "Перед звонком смотреть карточку, источник обращения, предыдущие касания и текущую стадию.",
+        "recommendation": "Перед звонком смотреть карточку, источник обращения, предыдущие касания и текущую стадию.",  # noqa: E501
         "weight": 1.0,
     },
     "followup_previous_context": {
-        "required_action": "Напомнить контекст предыдущего касания: КП, счёт, договорённость или вопрос клиента.",
-        "recommendation": "Начинать повторный контакт с конкретного контекста: что отправляли, что клиент обещал посмотреть, к чему возвращаемся.",
+        "required_action": "Напомнить контекст предыдущего касания: КП, счёт, договорённость или вопрос клиента.",  # noqa: E501
+        "recommendation": "Начинать повторный контакт с конкретного контекста: что отправляли, что клиент обещал посмотреть, к чему возвращаемся.",  # noqa: E501
         "weight": 1.2,
     },
     "followup_decision_status": {
         "required_action": "Уточнить текущий статус решения клиента.",
-        "recommendation": "Спрашивать прямо: посмотрели ли КП/счёт, приняли ли решение, кто ещё участвует в согласовании.",
+        "recommendation": "Спрашивать прямо: посмотрели ли КП/счёт, приняли ли решение, кто ещё участвует в согласовании.",  # noqa: E501
         "weight": 1.4,
     },
     "followup_blocker": {
         "required_action": "Выяснить, что мешает перейти к следующему шагу или оплате.",
-        "recommendation": "Не завершать повторный контакт без причины паузы: цена, сроки, согласование, конкурент, отсутствие потребности.",
+        "recommendation": "Не завершать повторный контакт без причины паузы: цена, сроки, согласование, конкурент, отсутствие потребности.",  # noqa: E501
         "weight": 1.4,
     },
 }
@@ -240,7 +239,7 @@ CUSTOM_STEP_PATTERNS: dict[str, dict[str, Any]] = {
         "block": "Дожим / повторный контакт",
         "criterion": "Напомнил контекст предыдущего касания",
         "patterns": [
-            r"\b(возвраща\w*|ранее|прошлый раз|обсуждали|отправлял\w*|высылал\w*|кп|коммерческ\w*|счет|счёт|договоренн\w*)\b",
+            r"\b(возвраща\w*|ранее|прошлый раз|обсуждали|отправлял\w*|высылал\w*|кп|коммерческ\w*|счет|счёт|договоренн\w*)\b",  # noqa: E501
         ],
         "partial_patterns": [r"\b(смотрел\w*|посмотрел\w*|получил\w*|письм\w*|сообщени\w*)\b"],
     },
@@ -248,7 +247,7 @@ CUSTOM_STEP_PATTERNS: dict[str, dict[str, Any]] = {
         "block": "Дожим / повторный контакт",
         "criterion": "Уточнил статус решения клиента",
         "patterns": [
-            r"\b(решение|решили|приняли|согласовал\w*|обсудил\w*|посмотрел\w*|готовы|когда планируете|какой статус)\b",
+            r"\b(решение|решили|приняли|согласовал\w*|обсудил\w*|посмотрел\w*|готовы|когда планируете|какой статус)\b",  # noqa: E501
         ],
         "partial_patterns": [r"\b(получилось|успели|что скажете|как вам)\b"],
     },
@@ -256,7 +255,7 @@ CUSTOM_STEP_PATTERNS: dict[str, dict[str, Any]] = {
         "block": "Дожим / повторный контакт",
         "criterion": "Выяснил барьер к покупке или следующему шагу",
         "patterns": [
-            r"\b(что смущает|что мешает|какая причина|почему|из-за чего|дорого|бюджет|сроки|согласован\w*|конкурент\w*)\b",
+            r"\b(что смущает|что мешает|какая причина|почему|из-за чего|дорого|бюджет|сроки|согласован\w*|конкурент\w*)\b",  # noqa: E501
         ],
         "partial_patterns": [r"\b(вопрос|сомнен\w*|не подходит|подума\w*)\b"],
     },
@@ -460,7 +459,11 @@ def _step_row(
         max_score = round(raw_max, 2)
         percent = round((raw_score * 100.0 / max(1.0, raw_max)), 2)
         status = _script_status(raw_score, raw_max)
-        evidence = checklist_item.get("checklist_evidence") or checklist_item.get("checklist_comment") or ""
+        evidence = (
+            checklist_item.get("checklist_evidence")
+            or checklist_item.get("checklist_comment")
+            or ""
+        )
 
     critical_error = ""
     if critical and status == "Провал":
@@ -504,7 +507,11 @@ def evaluate_script_for_call(row: dict[str, Any], call_number: int) -> list[dict
         profile = SCRIPT_PROFILES.get(profile_id) or {}
         for step in profile.get("steps") or []:
             if isinstance(step, dict):
-                out.append(_step_row(row, call_number, profile_id, profile, step, checklist, has_objections))
+                out.append(
+                    _step_row(
+                        row, call_number, profile_id, profile, step, checklist, has_objections
+                    )
+                )
 
     return out
 
@@ -610,10 +617,19 @@ def build_script_profile_rows(script_rows: list[dict[str, Any]]) -> list[dict[st
                 "script_critical_errors_count": len(critical_errors),
                 "script_critical_errors": "\n".join(critical_errors),
                 "script_failed_steps": "\n".join(failed_steps),
-                "script_profile_recommendation": _profile_recommendation(failed_steps, critical_errors),
+                "script_profile_recommendation": _profile_recommendation(
+                    failed_steps, critical_errors
+                ),
             }
         )
-    return sorted(out, key=lambda r: (str(r.get("deal_url") or ""), int(r.get("call_number") or 0), str(r.get("script_profile_name") or "")))
+    return sorted(
+        out,
+        key=lambda r: (
+            str(r.get("deal_url") or ""),
+            int(r.get("call_number") or 0),
+            str(r.get("script_profile_name") or ""),
+        ),
+    )
 
 
 def _script_priority(gap_count: int, gap_rate: float, weighted_gap: float) -> str:
@@ -681,7 +697,9 @@ def build_script_gap_rows(script_rows: list[dict[str, Any]]) -> list[dict[str, A
                 "script_partial_count": partial_count,
                 "script_calls": calls,
                 "script_gap_rate": gap_rate,
-                "script_priority": _script_priority(gap_count, gap_rate, float(bucket["_weighted_gap"])),
+                "script_priority": _script_priority(
+                    gap_count, gap_rate, float(bucket["_weighted_gap"])
+                ),
                 "script_training_recommendation": bucket["script_training_recommendation"],
             }
         )

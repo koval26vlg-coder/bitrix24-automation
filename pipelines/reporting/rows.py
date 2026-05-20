@@ -1,39 +1,49 @@
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pipelines.scoring import _clean_text_for_report, evaluate_crm_checklist, quality_label
 from pipelines.stages import safe_int, stage_display_name, stage_order_map
 
-def build_deal_conclusions(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+
+def build_deal_conclusions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(str(row.get("deal_id") or "unknown"), []).append(row)
 
-    out: List[Dict[str, Any]] = []
-    for deal_id, deal_rows in grouped.items():
+    out: list[dict[str, Any]] = []
+    for deal_rows in grouped.values():
         ok_rows = [r for r in deal_rows if not r.get("error")]
         scored = ok_rows or deal_rows
         calls_total = len(deal_rows)
         calls_ok = len(ok_rows)
-        avg_overall = round(sum(float(r.get("overall_score") or 0.0) for r in scored) / max(1, len(scored)), 2)
-        avg_call = round(sum(float(r.get("call_quality_score") or 0.0) for r in scored) / max(1, len(scored)), 2)
-        deal_quality = max(float(r.get("deal_quality_score") or 0.0) for r in scored) if scored else 0.0
+        avg_overall = round(
+            sum(float(r.get("overall_score") or 0.0) for r in scored) / max(1, len(scored)), 2
+        )
+        avg_call = round(
+            sum(float(r.get("call_quality_score") or 0.0) for r in scored) / max(1, len(scored)), 2
+        )
+        deal_quality = (
+            max(float(r.get("deal_quality_score") or 0.0) for r in scored) if scored else 0.0
+        )
         needs_ratio = sum(1 for r in scored if r.get("has_needs_discovery")) / max(1, len(scored))
-        next_step_ratio = sum(1 for r in scored if r.get("has_next_step_phrase")) / max(1, len(scored))
-        objection_ratio = sum(1 for r in scored if r.get("has_objection_work")) / max(1, len(scored))
+        next_step_ratio = sum(1 for r in scored if r.get("has_next_step_phrase")) / max(
+            1, len(scored)
+        )
+        objection_ratio = sum(1 for r in scored if r.get("has_objection_work")) / max(
+            1, len(scored)
+        )
         synced_ratio = sum(1 for r in scored if r.get("next_step_synced")) / max(1, len(scored))
-        avg_crm_work = round(sum(float(r.get("crm_work_score") or 0.0) for r in scored) / max(1, len(scored)), 2)
+        avg_crm_work = round(
+            sum(float(r.get("crm_work_score") or 0.0) for r in scored) / max(1, len(scored)), 2
+        )
 
         client_work_score = round(
-            avg_crm_work if avg_crm_work else (
-                0.60 * deal_quality
-                + 0.40 * synced_ratio * 100
-            ),
+            avg_crm_work if avg_crm_work else (0.60 * deal_quality + 0.40 * synced_ratio * 100),
             2,
         )
 
-        issues: List[str] = []
+        issues: list[str] = []
         if deal_quality < 100:
             issues.append("не полностью заполнена сделка")
         if needs_ratio < 0.5:
@@ -47,25 +57,33 @@ def build_deal_conclusions(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
         first = deal_rows[0]
         if client_work_score >= 80:
-            client_conclusion = "Клиент проработан качественно: CRM и разговоры дают понятную картину дальнейших действий."
+            client_conclusion = "Клиент проработан качественно: CRM и разговоры дают понятную картину дальнейших действий."  # noqa: E501
         elif client_work_score >= 60:
             client_conclusion = "Проработка клиента нормальная, но есть зоны для усиления."
         elif client_work_score >= 40:
-            client_conclusion = "Проработка клиента слабая: часть важных элементов не закреплена в разговоре или CRM."
+            client_conclusion = "Проработка клиента слабая: часть важных элементов не закреплена в разговоре или CRM."  # noqa: E501
         else:
-            client_conclusion = "Проработка клиента критически слабая: не хватает структуры, фиксации потребностей и следующего шага."
+            client_conclusion = "Проработка клиента критически слабая: не хватает структуры, фиксации потребностей и следующего шага."  # noqa: E501
 
         if avg_call >= 80:
             conversation_conclusion = "Качество разговоров сильное."
         elif avg_call >= 60:
             conversation_conclusion = "Качество разговоров нормальное, но нестабильное."
         elif avg_call >= 40:
-            conversation_conclusion = "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            conversation_conclusion = (
+                "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            )
         else:
             conversation_conclusion = "Качество разговоров критически слабое."
 
-        recommendations = "Усилить: " + ", ".join(issues) + "." if issues else "Сохранять текущий подход и фиксировать следующий шаг после каждого контакта."
-        transcript_paths = [str(r.get("transcript_path")) for r in deal_rows if r.get("transcript_path")]
+        recommendations = (
+            "Усилить: " + ", ".join(issues) + "."
+            if issues
+            else "Сохранять текущий подход и фиксировать следующий шаг после каждого контакта."
+        )
+        transcript_paths = [
+            str(r.get("transcript_path")) for r in deal_rows if r.get("transcript_path")
+        ]
 
         out.append(
             {
@@ -90,13 +108,13 @@ def build_deal_conclusions(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda x: float(x.get("client_work_score") or 0.0))
 
 
-def _deal_group_key(row: Dict[str, Any]) -> str:
+def _deal_group_key(row: dict[str, Any]) -> str:
     return str(row.get("deal_id") or row.get("deal_url") or "unknown")
 
 
-def _join_unique(values: List[Any], sep: str = "\n") -> str:
+def _join_unique(values: list[Any], sep: str = "\n") -> str:
     seen: set[str] = set()
-    out: List[str] = []
+    out: list[str] = []
     for value in values:
         text = str(value or "").strip()
         if not text or text in seen:
@@ -106,11 +124,11 @@ def _join_unique(values: List[Any], sep: str = "\n") -> str:
     return sep.join(out)
 
 
-def _call_sort_key(row: Dict[str, Any]) -> Tuple[str, str]:
+def _call_sort_key(row: dict[str, Any]) -> tuple[str, str]:
     return (str(row.get("start_time") or ""), str(row.get("activity_id") or ""))
 
 
-def _call_heading(row: Dict[str, Any], number: int) -> str:
+def _call_heading(row: dict[str, Any], number: int) -> str:
     subject = str(row.get("subject") or "Звонок").strip()
     duration = row.get("duration_minutes")
     duration_text = f"{duration:g} мин." if isinstance(duration, (int, float)) else ""
@@ -124,20 +142,22 @@ def _short_error(text: Any, limit: int = 550) -> str:
     if not raw:
         return ""
     if "не дождался входа в Bitrix" in raw or "oauth/authorize" in raw:
-        return "Не удалось открыть Bitrix через выбранный профиль браузера: требуется вход в Bitrix или выбран не тот профиль Edge/Chrome."
+        return "Не удалось открыть Bitrix через выбранный профиль браузера: требуется вход в Bitrix или выбран не тот профиль Edge/Chrome."  # noqa: E501
     if "UI download timeout" in raw:
-        return "Не удалось скачать запись через интерфейс Bitrix: файл не появился в папке загрузок."
+        return (
+            "Не удалось скачать запись через интерфейс Bitrix: файл не появился в папке загрузок."
+        )
     if "download failed" in raw:
         return "Не удалось скачать запись звонка через REST/UI."
     return raw[:limit] + ("..." if len(raw) > limit else "")
 
 
-def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, deal_rows in grouped.items():
         deal_rows = sorted(deal_rows, key=_call_sort_key)
         first = deal_rows[0]
@@ -151,15 +171,41 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         calls_total = len(call_rows)
         calls_ok = len(ok_calls)
         calls_failed = len(failed_calls)
-        skipped_short_calls = max(int(r.get("skipped_short_calls") or 0) for r in deal_rows) if deal_rows else 0
-        deal_quality = max(float(r.get("deal_quality_score") or 0.0) for r in deal_rows) if deal_rows else 0.0
+        skipped_short_calls = (
+            max(int(r.get("skipped_short_calls") or 0) for r in deal_rows) if deal_rows else 0
+        )
+        deal_quality = (
+            max(float(r.get("deal_quality_score") or 0.0) for r in deal_rows) if deal_rows else 0.0
+        )
         if scored:
-            avg_overall = round(sum(float(r.get("overall_score") or 0.0) for r in scored) / len(scored), 2)
-            avg_call = round(sum(float(r.get("call_quality_score") or 0.0) for r in scored) / len(scored), 2)
-            avg_checklist = round(sum(float(r.get("call_checklist_percent") or r.get("call_quality_score") or 0.0) for r in scored) / len(scored), 2)
-            avg_alignment = round(sum(float(r.get("alignment_score") or 0.0) for r in scored) / len(scored), 2)
-            avg_crm_work = round(sum(float(r.get("crm_work_score") or 0.0) for r in scored) / len(scored), 2)
-            avg_crm_checklist = round(sum(float(r.get("crm_checklist_percent") or r.get("crm_work_score") or 0.0) for r in scored) / len(scored), 2)
+            avg_overall = round(
+                sum(float(r.get("overall_score") or 0.0) for r in scored) / len(scored), 2
+            )
+            avg_call = round(
+                sum(float(r.get("call_quality_score") or 0.0) for r in scored) / len(scored), 2
+            )
+            avg_checklist = round(
+                sum(
+                    float(r.get("call_checklist_percent") or r.get("call_quality_score") or 0.0)
+                    for r in scored
+                )
+                / len(scored),
+                2,
+            )
+            avg_alignment = round(
+                sum(float(r.get("alignment_score") or 0.0) for r in scored) / len(scored), 2
+            )
+            avg_crm_work = round(
+                sum(float(r.get("crm_work_score") or 0.0) for r in scored) / len(scored), 2
+            )
+            avg_crm_checklist = round(
+                sum(
+                    float(r.get("crm_checklist_percent") or r.get("crm_work_score") or 0.0)
+                    for r in scored
+                )
+                / len(scored),
+                2,
+            )
             needs_ratio = sum(1 for r in scored if r.get("has_needs_discovery")) / len(scored)
             next_step_ratio = sum(1 for r in scored if r.get("has_next_step_phrase")) / len(scored)
             objection_ratio = sum(1 for r in scored if r.get("has_objection_work")) / len(scored)
@@ -176,15 +222,16 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             objection_ratio = 0.0
             synced_ratio = 0.0
 
-        client_work_score = round(
-            avg_crm_work if avg_crm_work else (
-                0.60 * deal_quality
-                + 0.40 * synced_ratio * 100
-            ),
-            2,
-        ) if scored else 0.0
+        client_work_score = (
+            round(
+                avg_crm_work if avg_crm_work else (0.60 * deal_quality + 0.40 * synced_ratio * 100),
+                2,
+            )
+            if scored
+            else 0.0
+        )
 
-        issues: List[str] = []
+        issues: list[str] = []
         if no_call_rows or calls_total == 0:
             issues.append("по сделке не найдено звонков")
         if calls_failed:
@@ -203,23 +250,33 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             issues.append("работа с возражениями не прослеживается")
 
         if not scored:
-            client_conclusion = "По сделке нет обработанных звонков: оценка клиента невозможна до появления записи или успешной расшифровки."
+            client_conclusion = "По сделке нет обработанных звонков: оценка клиента невозможна до появления записи или успешной расшифровки."  # noqa: E501
             conversation_conclusion = "Нет обработанных разговоров для оценки."
         elif client_work_score >= 80:
-            client_conclusion = "Клиент проработан качественно: CRM и разговоры дают понятную картину дальнейших действий."
-            conversation_conclusion = "Качество разговоров сильное." if avg_call >= 80 else "Разговоры в целом рабочие, но есть отдельные зоны для усиления."
+            client_conclusion = "Клиент проработан качественно: CRM и разговоры дают понятную картину дальнейших действий."  # noqa: E501
+            conversation_conclusion = (
+                "Качество разговоров сильное."
+                if avg_call >= 80
+                else "Разговоры в целом рабочие, но есть отдельные зоны для усиления."
+            )
         elif client_work_score >= 60:
             client_conclusion = "Проработка клиента нормальная, но есть зоны для усиления."
-            conversation_conclusion = "Качество разговоров нормальное, но нестабильное." if avg_call >= 60 else "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            conversation_conclusion = (
+                "Качество разговоров нормальное, но нестабильное."
+                if avg_call >= 60
+                else "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            )
         elif client_work_score >= 40:
-            client_conclusion = "Проработка клиента слабая: часть важных элементов не закреплена в разговоре или CRM."
-            conversation_conclusion = "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            client_conclusion = "Проработка клиента слабая: часть важных элементов не закреплена в разговоре или CRM."  # noqa: E501
+            conversation_conclusion = (
+                "Качество разговоров слабое: менеджеру нужна более четкая структура диалога."
+            )
         else:
-            client_conclusion = "Проработка клиента критически слабая: не хватает структуры, фиксации потребностей и следующего шага."
+            client_conclusion = "Проработка клиента критически слабая: не хватает структуры, фиксации потребностей и следующего шага."  # noqa: E501
             conversation_conclusion = "Качество разговоров критически слабое."
 
-        call_blocks: List[str] = []
-        transcript_blocks: List[str] = []
+        call_blocks: list[str] = []
+        transcript_blocks: list[str] = []
         for index, row in enumerate(call_rows, start=1):
             heading = _call_heading(row, index)
             if row.get("error"):
@@ -237,7 +294,9 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                     ]
                 ).strip()
             )
-            transcript = str(row.get("transcript_marked") or row.get("transcript_text") or "").strip()
+            transcript = str(
+                row.get("transcript_marked") or row.get("transcript_text") or ""
+            ).strip()
             if transcript:
                 transcript_blocks.append(f"{heading}\n{transcript}")
 
@@ -260,17 +319,26 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "no_calls": bool(no_call_rows or calls_total == 0),
                 "transcripts_count": len([r for r in ok_calls if r.get("transcript_path")]),
                 "avg_overall_score": avg_overall,
-                "overall_score_details": _join_unique([r.get("overall_score_details") for r in ok_calls]) or first.get("overall_score_details"),
+                "overall_score_details": _join_unique(
+                    [r.get("overall_score_details") for r in ok_calls]
+                )
+                or first.get("overall_score_details"),
                 "avg_call_quality_score": avg_call,
-                "call_quality_details": _join_unique([r.get("call_quality_details") for r in ok_calls]),
+                "call_quality_details": _join_unique(
+                    [r.get("call_quality_details") for r in ok_calls]
+                ),
                 "call_checklist_percent": avg_checklist,
-                "call_checklist_block_details": _join_unique([r.get("call_checklist_block_details") for r in ok_calls]),
+                "call_checklist_block_details": _join_unique(
+                    [r.get("call_checklist_block_details") for r in ok_calls]
+                ),
                 "deal_quality_score": deal_quality,
                 "deal_quality_details": first.get("deal_quality_details"),
                 "alignment_score": avg_alignment,
                 "crm_work_score": client_work_score,
                 "crm_checklist_percent": avg_crm_checklist,
-                "crm_checklist_details": _join_unique([r.get("crm_checklist_details") for r in ok_calls]),
+                "crm_checklist_details": _join_unique(
+                    [r.get("crm_checklist_details") for r in ok_calls]
+                ),
                 "alignment_details": _join_unique([r.get("alignment_details") for r in ok_calls]),
                 "stage_history_count": first.get("stage_history_count"),
                 "stage_history_path": first.get("stage_history_path"),
@@ -283,7 +351,9 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "deal_total_work_minutes": first.get("deal_total_work_minutes"),
                 "deal_total_work_days": first.get("deal_total_work_days"),
                 "deal_total_work_warning_threshold": first.get("deal_total_work_warning_threshold"),
-                "deal_total_work_critical_threshold": first.get("deal_total_work_critical_threshold"),
+                "deal_total_work_critical_threshold": first.get(
+                    "deal_total_work_critical_threshold"
+                ),
                 "deal_total_work_status": first.get("deal_total_work_status"),
                 "stage_return_count": first.get("stage_return_count"),
                 "stage_reached_final": first.get("stage_reached_final"),
@@ -294,28 +364,44 @@ def build_deal_report_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
                 "conversation_quality": quality_label(avg_call) if scored else "Нет данных",
                 "client_work_conclusion": client_conclusion,
                 "call_quality_conclusion": conversation_conclusion,
-                "recommendations": "Усилить: " + ", ".join(issues) + "." if issues else "Сохранять текущий подход и фиксировать следующий шаг после каждого контакта.",
+                "recommendations": (
+                    "Усилить: " + ", ".join(issues) + "."
+                    if issues
+                    else "Сохранять текущий подход и фиксировать следующий шаг после каждого контакта."  # noqa: E501
+                ),
                 "calls_breakdown": "\n\n".join(call_blocks),
                 "transcripts_combined": "\n\n---\n\n".join(transcript_blocks),
-                "conversation_meaning": _join_unique([r.get("conversation_meaning") for r in ok_calls], sep="\n\n"),
-                "improvement_moments_combined": _join_unique([r.get("improvement_moments") for r in ok_calls]),
+                "conversation_meaning": _join_unique(
+                    [r.get("conversation_meaning") for r in ok_calls], sep="\n\n"
+                ),
+                "improvement_moments_combined": _join_unique(
+                    [r.get("improvement_moments") for r in ok_calls]
+                ),
                 "objections_combined": _join_unique([r.get("objections_found") for r in ok_calls]),
-                "unhandled_objections": _join_unique([r.get("unhandled_objections") for r in ok_calls]),
-                "objection_recommendations": _join_unique([r.get("objection_recommendations") for r in ok_calls]),
+                "unhandled_objections": _join_unique(
+                    [r.get("unhandled_objections") for r in ok_calls]
+                ),
+                "objection_recommendations": _join_unique(
+                    [r.get("objection_recommendations") for r in ok_calls]
+                ),
                 "transcript_paths": _join_unique([r.get("transcript_path") for r in ok_calls]),
-                "error": _short_error(_join_unique([r.get("error") for r in deal_rows if r.get("error")])),
+                "error": _short_error(
+                    _join_unique([r.get("error") for r in deal_rows if r.get("error")])
+                ),
             }
         )
 
-    return sorted(out, key=lambda x: (str(x.get("manager_name") or ""), str(x.get("deal_url") or "")))
+    return sorted(
+        out, key=lambda x: (str(x.get("manager_name") or ""), str(x.get("deal_url") or ""))
+    )
 
 
-def build_call_detail_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_call_detail_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, deal_rows in grouped.items():
         deal_rows = sorted(deal_rows, key=_call_sort_key)
         call_rows = [r for r in deal_rows if not r.get("no_calls")]
@@ -372,8 +458,8 @@ def build_call_detail_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def build_objection_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def build_objection_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for row in rows:
         for objection in row.get("objection_rows") or []:
             if not isinstance(objection, dict):
@@ -392,12 +478,12 @@ def build_objection_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return out
 
 
-def build_call_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_call_checklist_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, deal_rows in grouped.items():
         deal_rows = sorted(deal_rows, key=_call_sort_key)
         call_rows = [r for r in deal_rows if not r.get("no_calls")]
@@ -408,7 +494,8 @@ def build_call_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 out.append(
                     {
                         "deal_url": row.get("deal_url"),
-                        "stage_name": row.get("stage_name") or stage_display_name(row.get("stage_id")),
+                        "stage_name": row.get("stage_name")
+                        or stage_display_name(row.get("stage_id")),
                         "manager_name": row.get("manager_name"),
                         "call_number": index,
                         "subject": row.get("subject"),
@@ -425,12 +512,12 @@ def build_call_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
     return out
 
 
-def build_sales_stage_score_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_sales_stage_score_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, deal_rows in grouped.items():
         deal_rows = sorted(deal_rows, key=_call_sort_key)
         call_rows = [r for r in deal_rows if not r.get("no_calls")]
@@ -441,7 +528,8 @@ def build_sales_stage_score_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, A
                 out.append(
                     {
                         "deal_url": row.get("deal_url"),
-                        "stage_name": row.get("stage_name") or stage_display_name(row.get("stage_id")),
+                        "stage_name": row.get("stage_name")
+                        or stage_display_name(row.get("stage_id")),
                         "manager_name": row.get("manager_name"),
                         "call_number": index,
                         "subject": row.get("subject"),
@@ -460,28 +548,28 @@ def _training_recommendation(block_name: Any, criterion: Any) -> str:
     block = str(block_name or "").lower()
     crit = str(criterion or "").strip()
     if "контакт" in block:
-        return f"Отработать старт звонка: {crit}. Сделать короткий обязательный скрипт первых 20 секунд."
+        return f"Отработать старт звонка: {crit}. Сделать короткий обязательный скрипт первых 20 секунд."  # noqa: E501
     if "потребност" in block:
-        return f"Отработать выявление потребности: {crit}. Добавить 3-5 обязательных уточняющих вопросов до презентации."
+        return f"Отработать выявление потребности: {crit}. Добавить 3-5 обязательных уточняющих вопросов до презентации."  # noqa: E501
     if "презентац" in block:
-        return f"Усилить презентацию: {crit}. Привязывать предложение к задаче клиента и говорить языком выгоды."
+        return f"Усилить презентацию: {crit}. Привязывать предложение к задаче клиента и говорить языком выгоды."  # noqa: E501
     if "возраж" in block:
-        return f"Отработать возражения: {crit}. Использовать схему: признать, уточнить причину, дать аргумент, закрепить следующий шаг."
+        return f"Отработать возражения: {crit}. Использовать схему: признать, уточнить причину, дать аргумент, закрепить следующий шаг."  # noqa: E501
     if "закрытие" in block:
-        return f"Усилить закрытие звонка: {crit}. Фиксировать договоренность, срок и следующий контакт в разговоре и CRM."
+        return f"Усилить закрытие звонка: {crit}. Фиксировать договоренность, срок и следующий контакт в разговоре и CRM."  # noqa: E501
     if "заполнение" in block:
-        return f"Навести порядок в карточке сделки: {crit}. Сделать поле обязательным или добавить контроль перед переводом стадии."
+        return f"Навести порядок в карточке сделки: {crit}. Сделать поле обязательным или добавить контроль перед переводом стадии."  # noqa: E501
     if "активность" in block:
-        return f"Проверить дисциплину касаний: {crit}. Звонок менеджера должен быть виден в CRM после исключения Call-центра."
+        return f"Проверить дисциплину касаний: {crit}. Звонок менеджера должен быть виден в CRM после исключения Call-центра."  # noqa: E501
     if "связь" in block:
-        return f"Синхронизировать разговор и CRM: {crit}. После звонка фиксировать следующий шаг и ключевые договоренности в карточке."
+        return f"Синхронизировать разговор и CRM: {crit}. После звонка фиксировать следующий шаг и ключевые договоренности в карточке."  # noqa: E501
     if "движение" in block:
-        return f"Контролировать движение по воронке: {crit}. Проверить зависшие стадии, возвраты и актуальность текущей стадии."
+        return f"Контролировать движение по воронке: {crit}. Проверить зависшие стадии, возвраты и актуальность текущей стадии."  # noqa: E501
     return f"Разобрать на обучении: {crit}. Проверить фрагменты звонков с низкой оценкой."
 
 
-def build_manager_stage_summary_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    agg: Dict[Tuple[str, str], Dict[str, Any]] = {}
+def build_manager_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    agg: dict[tuple[str, str], dict[str, Any]] = {}
     for row in rows:
         if row.get("no_calls") or row.get("error"):
             continue
@@ -512,7 +600,7 @@ def build_manager_stage_summary_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
             if percent < 70:
                 item["manager_stage_weak_calls"] += 1
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for item in agg.values():
         calls = max(1, int(item["manager_stage_calls"]))
         weak = int(item["manager_stage_weak_calls"])
@@ -527,11 +615,17 @@ def build_manager_stage_summary_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
                 "manager_stage_weak_rate": round(weak * 100.0 / calls, 2),
             }
         )
-    return sorted(out, key=lambda r: (float(r.get("manager_stage_avg_percent") or 0.0), str(r.get("manager_name") or "")))
+    return sorted(
+        out,
+        key=lambda r: (
+            float(r.get("manager_stage_avg_percent") or 0.0),
+            str(r.get("manager_name") or ""),
+        ),
+    )
 
 
-def build_manager_criterion_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    agg: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+def build_manager_criterion_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    agg: dict[tuple[str, str, str], dict[str, Any]] = {}
     for row in rows:
         if row.get("no_calls") or row.get("error"):
             continue
@@ -565,7 +659,7 @@ def build_manager_criterion_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
             elif score < 1:
                 bucket["criterion_partial_count"] += 1
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for bucket in agg.values():
         calls = max(1, int(bucket["criterion_calls"]))
         avg_score = float(bucket["_score_sum"]) / calls
@@ -595,7 +689,7 @@ def build_manager_criterion_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[st
     )
 
 
-def _aggregate_deal_crm_row(deal_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
+def _aggregate_deal_crm_row(deal_rows: list[dict[str, Any]]) -> dict[str, Any]:
     sorted_rows = sorted(deal_rows, key=_call_sort_key)
     first = dict(sorted_rows[0])
     call_rows = [r for r in sorted_rows if not r.get("no_calls")]
@@ -605,16 +699,18 @@ def _aggregate_deal_crm_row(deal_rows: List[Dict[str, Any]]) -> Dict[str, Any]:
     first["has_next_step_phrase"] = any(r.get("has_next_step_phrase") for r in ok_calls)
     first["next_step_synced"] = any(r.get("next_step_synced") for r in ok_calls)
     first["amount_mentioned"] = any(r.get("amount_mentioned") for r in ok_calls)
-    first["crm_checklist_items"] = evaluate_crm_checklist(first, include_stage=True).get("crm_checklist_items") or []
+    first["crm_checklist_items"] = (
+        evaluate_crm_checklist(first, include_stage=True).get("crm_checklist_items") or []
+    )
     return first
 
 
-def build_crm_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_crm_checklist_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, deal_rows in grouped.items():
         deal_row = _aggregate_deal_crm_row(deal_rows)
         for item in deal_row.get("crm_checklist_items") or []:
@@ -623,7 +719,8 @@ def build_crm_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
             out.append(
                 {
                     "deal_url": deal_row.get("deal_url"),
-                    "stage_name": deal_row.get("stage_name") or stage_display_name(deal_row.get("stage_id")),
+                    "stage_name": deal_row.get("stage_name")
+                    or stage_display_name(deal_row.get("stage_id")),
                     "manager_name": deal_row.get("manager_name"),
                     "crm_checklist_block_name": item.get("crm_checklist_block_name"),
                     "crm_checklist_criterion": item.get("crm_checklist_criterion"),
@@ -636,12 +733,12 @@ def build_crm_checklist_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
     return out
 
 
-def build_manager_crm_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_manager_crm_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
-    agg: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+    agg: dict[tuple[str, str, str], dict[str, Any]] = {}
     for _, deal_rows in grouped.items():
         deal_row = _aggregate_deal_crm_row(deal_rows)
         manager = str(deal_row.get("manager_name") or deal_row.get("manager_id") or "Без менеджера")
@@ -674,7 +771,7 @@ def build_manager_crm_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
             elif score < 1:
                 bucket["crm_criterion_partial_count"] += 1
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for bucket in agg.values():
         deals = max(1, int(bucket["crm_criterion_deals"]))
         avg_score = float(bucket["_score_sum"]) / deals
@@ -704,7 +801,7 @@ def build_manager_crm_gap_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any
     )
 
 
-def _control_priority(score: float, reasons: List[str]) -> Tuple[int, str]:
+def _control_priority(score: float, reasons: list[str]) -> tuple[int, str]:
     reason_text = " ".join(reasons).lower()
     if score >= 80 or "нет звонков" in reason_text or "тревога" in reason_text:
         return 1, "Критично"
@@ -715,23 +812,23 @@ def _control_priority(score: float, reasons: List[str]) -> Tuple[int, str]:
     return 4, "Наблюдать"
 
 
-def _control_next_action(row: Dict[str, Any], reasons: List[str]) -> str:
+def _control_next_action(row: dict[str, Any], reasons: list[str]) -> str:
     text = " ".join(reasons).lower()
     if "нет звонков" in text:
-        return "Проверить, почему по сделке нет звонка менеджера; назначить контакт с клиентом и зафиксировать следующий шаг в CRM."
+        return "Проверить, почему по сделке нет звонка менеджера; назначить контакт с клиентом и зафиксировать следующий шаг в CRM."  # noqa: E501
     if "ошиб" in text:
-        return "Запустить режим «Повторить только ошибки», затем проверить, доступна ли запись звонка и корректно ли работает источник аудио."
+        return "Запустить режим «Повторить только ошибки», затем проверить, доступна ли запись звонка и корректно ли работает источник аудио."  # noqa: E501
     if "crm" in text or "следующий шаг" in text:
-        return "Открыть карточку сделки, заполнить недостающие поля, зафиксировать договоренности и следующий шаг после разговора."
+        return "Открыть карточку сделки, заполнить недостающие поля, зафиксировать договоренности и следующий шаг после разговора."  # noqa: E501
     if "разговор" in text or "возраж" in text:
-        return "Разобрать расшифровку звонка с менеджером и закрепить конкретный сценарий: потребность, аргумент, следующий шаг."
+        return "Разобрать расшифровку звонка с менеджером и закрепить конкретный сценарий: потребность, аргумент, следующий шаг."  # noqa: E501
     if "стади" in text or "воронк" in text:
-        return "Проверить актуальность стадии, причину зависания и необходимость возврата/перевода сделки."
+        return "Проверить актуальность стадии, причину зависания и необходимость возврата/перевода сделки."  # noqa: E501
     return "Проверить сделку выборочно и оставить в мониторинге до следующего запуска отчета."
 
 
-def build_quality_control_rows(deal_report_rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def build_quality_control_rows(deal_report_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for row in deal_report_rows:
         overall = float(row.get("avg_overall_score") or 0.0)
         call_score = float(row.get("avg_call_quality_score") or 0.0)
@@ -741,7 +838,7 @@ def build_quality_control_rows(deal_report_rows: List[Dict[str, Any]]) -> List[D
         no_calls = bool(row.get("no_calls"))
         risk = str(row.get("stage_movement_risk") or "").strip()
         unhandled = str(row.get("unhandled_objections") or "").strip()
-        reasons: List[str] = []
+        reasons: list[str] = []
         risk_score = 0.0
         if no_calls or calls_total == 0:
             reasons.append("нет звонков менеджера")
@@ -790,7 +887,14 @@ def build_quality_control_rows(deal_report_rows: List[Dict[str, Any]]) -> List[D
                 "recommendations": row.get("recommendations"),
             }
         )
-    return sorted(out, key=lambda r: (int(r.get("control_priority_order") or 9), -float(r.get("quality_control_score") or 0), str(r.get("manager_name") or "")))
+    return sorted(
+        out,
+        key=lambda r: (
+            int(r.get("control_priority_order") or 9),
+            -float(r.get("quality_control_score") or 0),
+            str(r.get("manager_name") or ""),
+        ),
+    )
 
 
 def _coaching_priority(completion: float, fail_rate: float) -> str:
@@ -802,11 +906,11 @@ def _coaching_priority(completion: float, fail_rate: float) -> str:
 
 
 def build_coaching_plan_rows(
-    manager_criterion_gap_rows: List[Dict[str, Any]],
-    manager_crm_gap_rows: List[Dict[str, Any]],
-    manager_stage_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+    manager_criterion_gap_rows: list[dict[str, Any]],
+    manager_crm_gap_rows: list[dict[str, Any]],
+    manager_stage_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
 
     for row in manager_criterion_gap_rows:
         completion = float(row.get("criterion_completion_percent") or 0.0)
@@ -817,7 +921,7 @@ def build_coaching_plan_rows(
             {
                 "manager_name": row.get("manager_name"),
                 "training_source": "Звонки",
-                "training_topic": f"{row.get('checklist_block_name')}: {row.get('checklist_criterion')}",
+                "training_topic": f"{row.get('checklist_block_name')}: {row.get('checklist_criterion')}",  # noqa: E501
                 "coaching_priority": _coaching_priority(completion, fail_rate),
                 "coaching_metric": f"выполнение {completion:g}%, проблем {fail_rate:g}%",
                 "coaching_affected_count": row.get("criterion_calls"),
@@ -834,7 +938,7 @@ def build_coaching_plan_rows(
             {
                 "manager_name": row.get("manager_name"),
                 "training_source": "CRM",
-                "training_topic": f"{row.get('crm_checklist_block_name')}: {row.get('crm_checklist_criterion')}",
+                "training_topic": f"{row.get('crm_checklist_block_name')}: {row.get('crm_checklist_criterion')}",  # noqa: E501
                 "coaching_priority": _coaching_priority(completion, fail_rate),
                 "coaching_metric": f"выполнение {completion:g}%, проблем {fail_rate:g}%",
                 "coaching_affected_count": row.get("crm_criterion_deals"),
@@ -854,9 +958,9 @@ def build_coaching_plan_rows(
                 "training_source": "Этап продаж",
                 "training_topic": f"Этап: {stage}",
                 "coaching_priority": _coaching_priority(completion, weak_rate),
-                "coaching_metric": f"среднее выполнение {completion:g}%, слабых звонков {weak_rate:g}%",
+                "coaching_metric": f"среднее выполнение {completion:g}%, слабых звонков {weak_rate:g}%",  # noqa: E501
                 "coaching_affected_count": row.get("manager_stage_calls"),
-                "training_recommendation": f"Провести разбор этапа «{stage}» на примерах звонков менеджера и закрепить короткий рабочий сценарий.",
+                "training_recommendation": f"Провести разбор этапа «{stage}» на примерах звонков менеджера и закрепить короткий рабочий сценарий.",  # noqa: E501
             }
         )
 
@@ -871,24 +975,24 @@ def build_coaching_plan_rows(
     )
 
 
-def _avg_numeric(rows: List[Dict[str, Any]], key: str) -> float:
+def _avg_numeric(rows: list[dict[str, Any]], key: str) -> float:
     values = [float(row.get(key) or 0.0) for row in rows if row.get(key) is not None]
     return round(sum(values) / max(1, len(values)), 2)
 
 
-def _count_by(rows: List[Dict[str, Any]], key: str, value: str) -> int:
+def _count_by(rows: list[dict[str, Any]], key: str, value: str) -> int:
     return sum(1 for row in rows if str(row.get(key) or "") == value)
 
 
 def build_executive_summary_rows(
-    deal_report_rows: List[Dict[str, Any]],
-    manager_summary: List[Dict[str, Any]],
-    quality_control_rows: List[Dict[str, Any]],
-    manager_criterion_gap_rows: List[Dict[str, Any]],
-    manager_crm_gap_rows: List[Dict[str, Any]],
-    coaching_plan_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    rows: List[Dict[str, Any]] = []
+    deal_report_rows: list[dict[str, Any]],
+    manager_summary: list[dict[str, Any]],
+    quality_control_rows: list[dict[str, Any]],
+    manager_criterion_gap_rows: list[dict[str, Any]],
+    manager_crm_gap_rows: list[dict[str, Any]],
+    coaching_plan_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
 
     def add(section: str, metric: str, value: Any, comment: str = "") -> None:
         rows.append(
@@ -910,16 +1014,52 @@ def build_executive_summary_rows(
     add("Общее", "Сделок в отчете", deals_total)
     add("Общее", "Звонков в сделках", calls_total)
     add("Общее", "Успешно обработано звонков", calls_ok)
-    add("Общее", "Ошибок обработки звонков", calls_failed, "Используйте режим «Повторить только ошибки».")
-    add("Общее", "Звонков без новой ASR", asr_skipped_calls, "Bit.Newton недоступен или токен не принят; кэш расшифровок используется, где он есть.")
-    add("Общее", "Исключено коротких звонков", skipped_short_calls, "Технические дозвоны короче минимальной длительности не отправляются в Bit.Newton.")
-    add("Общее", "Сделок без звонков менеджера", deals_without_calls, "Call-центр исключен из оценки менеджера.")
+    add(
+        "Общее",
+        "Ошибок обработки звонков",
+        calls_failed,
+        "Используйте режим «Повторить только ошибки».",
+    )
+    add(
+        "Общее",
+        "Звонков без новой ASR",
+        asr_skipped_calls,
+        "Bit.Newton недоступен или токен не принят; кэш расшифровок используется, где он есть.",
+    )
+    add(
+        "Общее",
+        "Исключено коротких звонков",
+        skipped_short_calls,
+        "Технические дозвоны короче минимальной длительности не отправляются в Bit.Newton.",
+    )
+    add(
+        "Общее",
+        "Сделок без звонков менеджера",
+        deals_without_calls,
+        "Call-центр исключен из оценки менеджера.",
+    )
     add("Оценки", "Средняя итоговая оценка", _avg_numeric(deal_report_rows, "avg_overall_score"))
-    add("Оценки", "Средняя оценка разговора", _avg_numeric(deal_report_rows, "avg_call_quality_score"))
+    add(
+        "Оценки",
+        "Средняя оценка разговора",
+        _avg_numeric(deal_report_rows, "avg_call_quality_score"),
+    )
     add("Оценки", "Средняя оценка CRM", _avg_numeric(deal_report_rows, "crm_checklist_percent"))
-    add("Контроль", "Критичных сделок", _count_by(quality_control_rows, "control_priority", "Критично"))
-    add("Контроль", "Сделок высокого приоритета", _count_by(quality_control_rows, "control_priority", "Высокий"))
-    add("Контроль", "Сделок среднего приоритета", _count_by(quality_control_rows, "control_priority", "Средний"))
+    add(
+        "Контроль",
+        "Критичных сделок",
+        _count_by(quality_control_rows, "control_priority", "Критично"),
+    )
+    add(
+        "Контроль",
+        "Сделок высокого приоритета",
+        _count_by(quality_control_rows, "control_priority", "Высокий"),
+    )
+    add(
+        "Контроль",
+        "Сделок среднего приоритета",
+        _count_by(quality_control_rows, "control_priority", "Средний"),
+    )
 
     for index, row in enumerate(quality_control_rows[:5], start=1):
         add(
@@ -957,20 +1097,26 @@ def build_executive_summary_rows(
 
 
 def build_manager_scorecard_rows(
-    manager_summary: List[Dict[str, Any]],
-    quality_control_rows: List[Dict[str, Any]],
-    coaching_plan_rows: List[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
-    control_by_manager: Dict[str, List[Dict[str, Any]]] = {}
+    manager_summary: list[dict[str, Any]],
+    quality_control_rows: list[dict[str, Any]],
+    coaching_plan_rows: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    control_by_manager: dict[str, list[dict[str, Any]]] = {}
     for row in quality_control_rows:
-        control_by_manager.setdefault(str(row.get("manager_name") or "Без менеджера"), []).append(row)
+        control_by_manager.setdefault(str(row.get("manager_name") or "Без менеджера"), []).append(
+            row
+        )
 
-    coaching_by_manager: Dict[str, List[Dict[str, Any]]] = {}
+    coaching_by_manager: dict[str, list[dict[str, Any]]] = {}
     for row in coaching_plan_rows:
-        coaching_by_manager.setdefault(str(row.get("manager_name") or "Без менеджера"), []).append(row)
+        coaching_by_manager.setdefault(str(row.get("manager_name") or "Без менеджера"), []).append(
+            row
+        )
 
-    out: List[Dict[str, Any]] = []
-    sorted_managers = sorted(manager_summary, key=lambda r: float(r.get("avg_overall_score") or 0.0))
+    out: list[dict[str, Any]] = []
+    sorted_managers = sorted(
+        manager_summary, key=lambda r: float(r.get("avg_overall_score") or 0.0)
+    )
     for rank, row in enumerate(sorted_managers, start=1):
         manager = str(row.get("manager_name") or "Без менеджера")
         control = control_by_manager.get(manager, [])
@@ -981,16 +1127,20 @@ def build_manager_scorecard_rows(
         score = float(row.get("avg_overall_score") or 0.0)
         if critical:
             focus = "Срочный контроль сделок"
-            next_action = "Начать с критичных сделок из листа «Контроль качества», затем провести точечный разбор звонков."
+            next_action = "Начать с критичных сделок из листа «Контроль качества», затем провести точечный разбор звонков."  # noqa: E501
         elif high:
             focus = "Плановый контроль сделок"
-            next_action = "Проверить сделки высокого приоритета и закрепить правила фиксации следующего шага."
+            next_action = (
+                "Проверить сделки высокого приоритета и закрепить правила фиксации следующего шага."
+            )
         elif coaching:
             focus = "Обучение по стабильности качества"
             next_action = "Провести короткое обучение по главной теме из плана обучения."
         elif score < 70:
             focus = "Наблюдение"
-            next_action = "Проверить несколько свежих сделок и сравнить динамику на следующем отчете."
+            next_action = (
+                "Проверить несколько свежих сделок и сравнить динамику на следующем отчете."
+            )
         else:
             focus = "Поддерживать уровень"
             next_action = "Использовать лучшие звонки менеджера как примеры для команды."
@@ -1016,15 +1166,15 @@ def build_manager_scorecard_rows(
     return out
 
 
-def _unique_deal_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def _unique_deal_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
     return [sorted(deal_rows, key=_call_sort_key)[0] for deal_rows in grouped.values()]
 
 
-def build_stage_history_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def build_stage_history_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for deal_row in _unique_deal_rows(rows):
         for item in deal_row.get("stage_history_items") or []:
             if not isinstance(item, dict):
@@ -1044,13 +1194,18 @@ def build_stage_history_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]
                     "stage_is_current": item.get("stage_is_current"),
                 }
             )
-    return sorted(out, key=lambda r: (str(r.get("deal_url") or ""), str(r.get("stage_history_created_at") or "")))
+    return sorted(
+        out,
+        key=lambda r: (str(r.get("deal_url") or ""), str(r.get("stage_history_created_at") or "")),
+    )
 
 
-def build_stage_sr_rows(rows: List[Dict[str, Any]], stage_map: Optional[Dict[str, str]] = None) -> List[Dict[str, Any]]:
+def build_stage_sr_rows(
+    rows: list[dict[str, Any]], stage_map: dict[str, str] | None = None
+) -> list[dict[str, Any]]:
     deal_rows = _unique_deal_rows(rows)
     deals_total = len(deal_rows)
-    stage_deals: Dict[str, set[str]] = {}
+    stage_deals: dict[str, set[str]] = {}
     ranks = stage_order_map(stage_map)
 
     for deal_row in deal_rows:
@@ -1067,7 +1222,7 @@ def build_stage_sr_rows(rows: List[Dict[str, Any]], stage_map: Optional[Dict[str
         for stage_id in seen_stages:
             stage_deals.setdefault(stage_id, set()).add(deal_key)
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for stage_id, deal_keys in stage_deals.items():
         passed = len(deal_keys)
         out.append(
@@ -1080,16 +1235,19 @@ def build_stage_sr_rows(rows: List[Dict[str, Any]], stage_map: Optional[Dict[str
                 "stage_sr": round((passed / max(1, deals_total)) * 100.0, 2),
             }
         )
-    return sorted(out, key=lambda r: (safe_int(r.get("stage_order")) or 9999, str(r.get("stage_name") or "")))
+    return sorted(
+        out, key=lambda r: (safe_int(r.get("stage_order")) or 9999, str(r.get("stage_name") or ""))
+    )
 
 
-def build_stage_movement_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    out: List[Dict[str, Any]] = []
+def build_stage_movement_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = []
     for deal_row in _unique_deal_rows(rows):
         out.append(
             {
                 "deal_url": deal_row.get("deal_url"),
-                "stage_name": deal_row.get("stage_name") or stage_display_name(deal_row.get("stage_id")),
+                "stage_name": deal_row.get("stage_name")
+                or stage_display_name(deal_row.get("stage_id")),
                 "manager_name": deal_row.get("manager_name"),
                 "stage_history_count": deal_row.get("stage_history_count"),
                 "stage_history_path": deal_row.get("stage_history_path"),
@@ -1101,8 +1259,12 @@ def build_stage_movement_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 "stage_current_age_status": deal_row.get("stage_current_age_status"),
                 "deal_total_work_minutes": deal_row.get("deal_total_work_minutes"),
                 "deal_total_work_days": deal_row.get("deal_total_work_days"),
-                "deal_total_work_warning_threshold": deal_row.get("deal_total_work_warning_threshold"),
-                "deal_total_work_critical_threshold": deal_row.get("deal_total_work_critical_threshold"),
+                "deal_total_work_warning_threshold": deal_row.get(
+                    "deal_total_work_warning_threshold"
+                ),
+                "deal_total_work_critical_threshold": deal_row.get(
+                    "deal_total_work_critical_threshold"
+                ),
                 "deal_total_work_status": deal_row.get("deal_total_work_status"),
                 "stage_return_count": deal_row.get("stage_return_count"),
                 "stage_reached_final": deal_row.get("stage_reached_final"),
@@ -1110,13 +1272,28 @@ def build_stage_movement_rows(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]
                 "stage_movement_recommendation": deal_row.get("stage_movement_recommendation"),
             }
         )
-    risk_order = {"Зависла": 0, "Нет продвижения": 1, "Возвраты": 2, "Нет истории": 3, "OK": 4, "Финал": 5}
-    return sorted(out, key=lambda r: (risk_order.get(str(r.get("stage_movement_risk") or ""), 9), str(r.get("manager_name") or "")))
+    risk_order = {
+        "Зависла": 0,
+        "Нет продвижения": 1,
+        "Возвраты": 2,
+        "Нет истории": 3,
+        "OK": 4,
+        "Финал": 5,
+    }
+    return sorted(
+        out,
+        key=lambda r: (
+            risk_order.get(str(r.get("stage_movement_risk") or ""), 9),
+            str(r.get("manager_name") or ""),
+        ),
+    )
 
 
-def build_manager_summary(rows: List[Dict[str, Any]], score_key: str = "overall_score") -> List[Dict[str, Any]]:
-    agg: Dict[str, Dict[str, Any]] = {}
-    grouped: Dict[str, List[Dict[str, Any]]] = {}
+def build_manager_summary(
+    rows: list[dict[str, Any]], score_key: str = "overall_score"
+) -> list[dict[str, Any]]:
+    agg: dict[str, dict[str, Any]] = {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         grouped.setdefault(_deal_group_key(row), []).append(row)
 
@@ -1155,9 +1332,15 @@ def build_manager_summary(rows: List[Dict[str, Any]], score_key: str = "overall_
             a["deals_without_calls"] += 1
         a["scored_deals"] += 1
         a["overall_score_sum"] += deal_score
-        if any(not r.get("has_contact") or not r.get("has_amount") or not r.get("has_comments") for r in deal_rows):
+        if any(
+            not r.get("has_contact") or not r.get("has_amount") or not r.get("has_comments")
+            for r in deal_rows
+        ):
             a["growth_deal_data"] += 1
-        if not ok_calls or any(float(r.get("call_checklist_percent") or r.get("call_quality_score") or 0.0) < 70 for r in ok_calls):
+        if not ok_calls or any(
+            float(r.get("call_checklist_percent") or r.get("call_quality_score") or 0.0) < 70
+            for r in ok_calls
+        ):
             a["growth_call_structure"] += 1
         if not ok_calls or not any(r.get("next_step_synced") for r in ok_calls):
             a["growth_alignment"] += 1
@@ -1174,7 +1357,7 @@ def build_manager_summary(rows: List[Dict[str, Any]], score_key: str = "overall_
                     if criterion:
                         gaps[criterion] = int(gaps.get(criterion, 0)) + 1
 
-    out: List[Dict[str, Any]] = []
+    out: list[dict[str, Any]] = []
     for _, a in agg.items():
         total = max(1, int(a["scored_deals"]))
         a["avg_overall_score"] = round(float(a["overall_score_sum"]) / total, 2)
@@ -1182,12 +1365,17 @@ def build_manager_summary(rows: List[Dict[str, Any]], score_key: str = "overall_
         gaps = a.pop("_checklist_gaps", {}) or {}
         if isinstance(gaps, dict):
             a["top_checklist_gaps"] = "; ".join(
-                criterion for criterion, _ in sorted(gaps.items(), key=lambda x: int(x[1]), reverse=True)[:5]
+                criterion
+                for criterion, _ in sorted(gaps.items(), key=lambda x: int(x[1]), reverse=True)[:5]
             )
         else:
             a["top_checklist_gaps"] = ""
         zones = sorted(
-            [("Ведение CRM", a["growth_deal_data"]), ("Структура разговора", a["growth_call_structure"]), ("Синхронизация звонок↔CRM", a["growth_alignment"])],
+            [
+                ("Ведение CRM", a["growth_deal_data"]),
+                ("Структура разговора", a["growth_call_structure"]),
+                ("Синхронизация звонок↔CRM", a["growth_alignment"]),
+            ],
             key=lambda x: x[1],
             reverse=True,
         )

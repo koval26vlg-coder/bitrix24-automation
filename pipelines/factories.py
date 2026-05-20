@@ -1,18 +1,21 @@
 from __future__ import annotations
+
 import inspect
 from types import SimpleNamespace
 from typing import Any
+
 from asr.bitnewton import BitNewtonAuthError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
-from vibecode_api import env_vibecode_client
+from logging_setup import get_logger
 from pipelines.token_status import (
     format_bitnewton_token_status,
     record_bitnewton_token_validation,
     update_bitnewton_token_status,
 )
-from logging_setup import get_logger
+from vibecode_api import env_vibecode_client
 
 logger = get_logger(__name__)
+
 
 async def create_bitrix_api() -> Bitrix24API:
     """Создает и тестирует подключение к Bitrix24 API."""
@@ -21,6 +24,7 @@ async def create_bitrix_api() -> Bitrix24API:
         await api.aclose()
         raise SystemExit(1)
     return api
+
 
 def create_vibecode_client(args: Any) -> Any:
     """Создает клиент VibeCode API, если это разрешено аргументами."""
@@ -41,9 +45,12 @@ def create_vibecode_client(args: Any) -> Any:
         days = trial.get("daysRemaining") if isinstance(trial, dict) else None
         logger.info(f"[VIBECODE] Подключено: портал={portal or 'unknown'}, trial_days={days}")
     except Exception as e:
-        logger.warning(f"[WARN] Не удалось проверить VibeCode /v1/me: {e}. Будет использован Bitrix REST.") 
+        logger.warning(
+            f"[WARN] Не удалось проверить VibeCode /v1/me: {e}. Будет использован Bitrix REST."
+        )
         return None
     return vibe
+
 
 def create_bitnewton_asr(args: Any) -> Any:
     """Создает клиент Bit.Newton ASR и проверяет токен."""
@@ -61,6 +68,7 @@ def create_bitnewton_asr(args: Any) -> Any:
     update_bitnewton_token_status(getattr(asr, "token", ""))
     return asr
 
+
 async def validate_asr_token(asr: Any) -> None:
     """Асинхронная валидация токена ASR."""
     if hasattr(asr, "auth_error") or not hasattr(asr, "validate_token"):
@@ -76,7 +84,9 @@ async def validate_asr_token(asr: Any) -> None:
         token_status = record_bitnewton_token_validation(ok=False, error=reason)
         logger.info(f"[TOKEN] {format_bitnewton_token_status(token_status)}")
         logger.warning(f"[WARN] {reason}")
-        logger.warning("[WARN] Продолжаю отчет без новых запросов в Bit.Newton: использую кэш и CRM-аналитику.")
-        setattr(asr, "auth_error", reason)
+        logger.warning(
+            "[WARN] Продолжаю отчет без новых запросов в Bit.Newton: использую кэш и CRM-аналитику."
+        )
+        asr.auth_error = reason
     except Exception as e:
         logger.warning(f"[WARN] Не удалось предварительно проверить токен Bit.Newton: {e}")

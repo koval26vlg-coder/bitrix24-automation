@@ -126,7 +126,11 @@ def choose_period() -> tuple[str, str, str] | None:
             "30_dney",
         )
     if period_choice == "3":
-        return today.replace(day=1).strftime("%Y-%m-%d"), today.strftime("%Y-%m-%d"), "tekushchiy_mesyac"
+        return (
+            today.replace(day=1).strftime("%Y-%m-%d"),
+            today.strftime("%Y-%m-%d"),
+            "tekushchiy_mesyac",
+        )
     if period_choice == "4":
         last_month = today.replace(day=1) - timedelta(days=1)
         return (

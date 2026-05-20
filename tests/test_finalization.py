@@ -94,12 +94,16 @@ async def test_finalize_sync_report_orchestrates_final_steps(monkeypatch, tmp_pa
         "pipelines.finalization.print_kpi_comparison",
         lambda final_results, kpi_cmp: calls.append("kpi"),
     )
-    monkeypatch.setattr("pipelines.finalization.cleanup_chrome_tmp_if_needed", lambda args: calls.append("cleanup"))
+    monkeypatch.setattr(
+        "pipelines.finalization.cleanup_chrome_tmp_if_needed", lambda args: calls.append("cleanup")
+    )
 
     async def fake_lost_deals_analysis(**kwargs):
         return {"rows": [], "summary_rows": [], "action_rows": []}
 
-    monkeypatch.setattr("pipelines.finalization.build_lost_deals_analysis", fake_lost_deals_analysis)
+    monkeypatch.setattr(
+        "pipelines.finalization.build_lost_deals_analysis", fake_lost_deals_analysis
+    )
 
     output = await finalize_sync_report(
         api=object(),

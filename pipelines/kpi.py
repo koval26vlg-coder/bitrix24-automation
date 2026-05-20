@@ -2,13 +2,12 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Optional
-
+from typing import Any
 
 FIRST_RESPONSE_SLA_HOURS = 0.5
 MAX_GAP_BETWEEN_CALLS_HOURS = 72.0
 
-DEFAULT_KPI_CONFIG: Dict[str, Any] = {
+DEFAULT_KPI_CONFIG: dict[str, Any] = {
     "profile": {"name": "default", "version": "1"},
     "sla": {"first_response_hours": 0.5, "max_gap_between_calls_hours": 72.0},
     "weights": {
@@ -16,16 +15,31 @@ DEFAULT_KPI_CONFIG: Dict[str, Any] = {
         "discipline_split": {"first_response": 1.0, "cadence": 0.0},
         "crm_alignment_split": {"deal_quality": 0.6, "alignment": 0.4},
     },
-    "deal_quality_weights": {"has_contact": 25, "has_amount": 25, "has_title": 25, "has_comments": 25},
-    "call_quality_weights": {"greeting": 25, "needs_discovery": 30, "objection_work": 20, "next_step": 25},
-    "alignment_weights": {"title_hit": 10, "title_hit_cap": 40, "amount_mentioned": 30, "next_step_synced": 30},
+    "deal_quality_weights": {
+        "has_contact": 25,
+        "has_amount": 25,
+        "has_title": 25,
+        "has_comments": 25,
+    },
+    "call_quality_weights": {
+        "greeting": 25,
+        "needs_discovery": 30,
+        "objection_work": 20,
+        "next_step": 25,
+    },
+    "alignment_weights": {
+        "title_hit": 10,
+        "title_hit_cap": 40,
+        "amount_mentioned": 30,
+        "next_step_synced": 30,
+    },
     "patterns": {
         "greeting": [r"\b(добрый|здравств\w*|привет)\b"],
         "needs_discovery": [
-            r"\b(потребност\w*|задач\w*|нужно|необходим\w*|интересу\w*|уточн\w*|подскаж\w*|что нужно|что необходимо)\b"
+            r"\b(потребност\w*|задач\w*|нужно|необходим\w*|интересу\w*|уточн\w*|подскаж\w*|что нужно|что необходимо)\b"  # noqa: E501
         ],
         "objection_work": [
-            r"\b(дорог\w*|возраж\w*|сомнен\w*|не подходит|не смож\w*|не получится|нет возможности|подума\w*)\b"
+            r"\b(дорог\w*|возраж\w*|сомнен\w*|не подходит|не смож\w*|не получится|нет возможности|подума\w*)\b"  # noqa: E501
         ],
         "next_step": [
             r"\b(договор\w*|следующ\w*|перезвон\w*|отправ\w*|вышл\w*|встреч\w*|созвон\w*|уточн\w*|согласу\w*)\b"
@@ -34,7 +48,7 @@ DEFAULT_KPI_CONFIG: Dict[str, Any] = {
 }
 
 
-def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any]:
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
     out = dict(base)
     for key, value in (override or {}).items():
         if isinstance(value, dict) and isinstance(out.get(key), dict):
@@ -44,7 +58,7 @@ def _deep_merge(base: Dict[str, Any], override: Dict[str, Any]) -> Dict[str, Any
     return out
 
 
-def validate_kpi_config(kpi: Dict[str, Any]) -> None:
+def validate_kpi_config(kpi: dict[str, Any]) -> None:
     if not isinstance(kpi, dict):
         raise RuntimeError("KPI config: должен быть объектом")
     prof = kpi.get("profile")
@@ -63,9 +77,15 @@ def validate_kpi_config(kpi: Dict[str, Any]) -> None:
     overall = weights.get("overall")
     if not isinstance(overall, dict):
         raise RuntimeError("KPI config: weights.overall должен быть объектом")
-    total = float(overall.get("call_quality", 0)) + float(overall.get("discipline", 0)) + float(overall.get("crm_alignment", 0))
+    total = (
+        float(overall.get("call_quality", 0))
+        + float(overall.get("discipline", 0))
+        + float(overall.get("crm_alignment", 0))
+    )
     if not (0.95 <= total <= 1.05):
-        raise RuntimeError(f"KPI config: weights.overall должны суммироваться примерно в 1.0 (сейчас {total})")
+        raise RuntimeError(
+            f"KPI config: weights.overall должны суммироваться примерно в 1.0 (сейчас {total})"
+        )
     patterns = kpi.get("patterns")
     if patterns is not None:
         if not isinstance(patterns, dict):
@@ -78,7 +98,7 @@ def validate_kpi_config(kpi: Dict[str, Any]) -> None:
                     raise RuntimeError(f"KPI config: patterns.{key} содержит не строку")
 
 
-def enforce_reaction_kpi(kpi: Dict[str, Any]) -> Dict[str, Any]:
+def enforce_reaction_kpi(kpi: dict[str, Any]) -> dict[str, Any]:
     """
     Единая итоговая оценка: разговор + ведение CRM. Скорость реакции не влияет на итог.
     """
@@ -93,7 +113,7 @@ def enforce_reaction_kpi(kpi: Dict[str, Any]) -> Dict[str, Any]:
     return kpi
 
 
-def load_kpi_config(path: Optional[str]) -> Dict[str, Any]:
+def load_kpi_config(path: str | None) -> dict[str, Any]:
     cfg = dict(DEFAULT_KPI_CONFIG)
     if not path:
         cfg = enforce_reaction_kpi(cfg)

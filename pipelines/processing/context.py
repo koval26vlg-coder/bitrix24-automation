@@ -1,36 +1,42 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
+
 from bitrix.api import Bitrix24API
+
 
 class FatalProcessingError(RuntimeError):
     pass
+
 
 @dataclass
 class ProcessingContext:
     api: Bitrix24API
     asr: Any
     args: Any
-    kpi: Dict[str, Any]
-    kpi_cmp: Optional[Dict[str, Any]]
-    audio_source_index: List[Path]
+    kpi: dict[str, Any]
+    kpi_cmp: dict[str, Any] | None
+    audio_source_index: list[Path]
     audio_dir: Path
     ui_audio_dir: Path
-    state_cache: Dict[str, Any]
+    state_cache: dict[str, Any]
     ui_browser_session: Any = None
     vibe: Any = None
-    asr_disabled_reason: Optional[str] = None
+    asr_disabled_reason: str | None = None
     codex_evaluator: Any = None  # Добавляем CodexEvaluator
+
 
 @dataclass
 class DealProcessingResult:
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     ok: int
     err: int
 
+
 @dataclass
 class ProcessingRunResult:
-    rows: List[Dict[str, Any]]
+    rows: list[dict[str, Any]]
     ok: int
     err: int

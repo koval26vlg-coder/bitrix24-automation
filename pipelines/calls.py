@@ -1,25 +1,30 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import asyncio
 from datetime import datetime
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from bitrix.api import Bitrix24API
 from pipelines.stages import safe_int
 
-
 FIRST_RESPONSE_SLA_HOURS = 0.5
 
 
-async def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
+async def activity_get(api: Bitrix24API, activity_id: int) -> dict[str, Any]:
     res = await api.call("crm.activity.get", {"id": int(activity_id)})
     return res.get("result", {}) or {}
 
 
-async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict[str, Any]]:
+async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> list[dict[str, Any]]:
     res = await api.call(
         "crm.activity.list",
         {
-            "filter": {"OWNER_TYPE_ID": 2, "OWNER_ID": str(deal_id), "TYPE_ID": 2, "PROVIDER_ID": "VOXIMPLANT_CALL"},
+            "filter": {
+                "OWNER_TYPE_ID": 2,
+                "OWNER_ID": str(deal_id),
+                "TYPE_ID": 2,
+                "PROVIDER_ID": "VOXIMPLANT_CALL",
+            },
             "select": [
                 "ID",
                 "CREATED",
@@ -40,7 +45,9 @@ async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict
     return res.get("result", []) or []
 
 
-async def user_profile(api: Bitrix24API, user_id: Any, cache: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+async def user_profile(
+    api: Bitrix24API, user_id: Any, cache: dict[int, dict[str, Any]]
+) -> dict[str, Any]:
     uid = safe_int(user_id)
     if uid is None:
         return {}
@@ -55,8 +62,14 @@ async def user_profile(api: Bitrix24API, user_id: Any, cache: Dict[int, Dict[str
     return cache[uid]
 
 
-async def load_department_chain(api: Bitrix24API, department_ids: List[Any], cache: Dict[int, Dict[str, Any]]) -> None:
-    pending = {int(x) for x in [safe_int(v) for v in department_ids] if x is not None and int(x) > 0 and int(x) not in cache}
+async def load_department_chain(
+    api: Bitrix24API, department_ids: list[Any], cache: dict[int, dict[str, Any]]
+) -> None:
+    pending = {
+        int(x)
+        for x in [safe_int(v) for v in department_ids]
+        if x is not None and int(x) > 0 and int(x) not in cache
+    }
     while pending:
         current = sorted(pending)
         pending.clear()
@@ -77,14 +90,19 @@ async def load_department_chain(api: Bitrix24API, department_ids: List[Any], cac
                 pending.add(parent)
 
 
-def department_is_call_center(department_id: Any, cache: Dict[int, Dict[str, Any]]) -> bool:
+def department_is_call_center(department_id: Any, cache: dict[int, dict[str, Any]]) -> bool:
     did = safe_int(department_id)
     seen: set[int] = set()
     while did is not None and did > 0 and did not in seen:
         seen.add(did)
         row = cache.get(did) or {}
         name = str(row.get("NAME") or "").lower()
-        if "call центр" in name or "call center" in name or "колл" in name or "контакт центр" in name:
+        if (
+            "call центр" in name
+            or "call center" in name
+            or "колл" in name
+            or "контакт центр" in name
+        ):
             return True
         did = safe_int(row.get("PARENT"))
     return False
@@ -93,8 +111,8 @@ def department_is_call_center(department_id: Any, cache: Dict[int, Dict[str, Any
 async def is_call_center_operator(
     api: Bitrix24API,
     user_id: Any,
-    user_cache: Dict[int, Dict[str, Any]],
-    department_cache: Dict[int, Dict[str, Any]],
+    user_cache: dict[int, dict[str, Any]],
+    department_cache: dict[int, dict[str, Any]],
 ) -> bool:
     user = await user_profile(api, user_id, user_cache)
     if not user:
@@ -111,40 +129,40 @@ async def is_call_center_operator(
 
 async def split_call_center_operator_activities(
     api: Bitrix24API,
-    activities: List[Dict[str, Any]],
-    user_cache: Dict[int, Dict[str, Any]],
-    department_cache: Dict[int, Dict[str, Any]],
-) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-    kept: List[Dict[str, Any]] = []
-    skipped: List[Dict[str, Any]] = []
-    
+    activities: list[dict[str, Any]],
+    user_cache: dict[int, dict[str, Any]],
+    department_cache: dict[int, dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    kept: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+
     # Мы можем распараллелить проверку операторов
     tasks = []
     for act in activities:
         responsible_id = act.get("RESPONSIBLE_ID") or act.get("AUTHOR_ID")
         tasks.append(is_call_center_operator(api, responsible_id, user_cache, department_cache))
-    
+
     results = await asyncio.gather(*tasks)
-    
-    for act, is_cc in zip(activities, results):
+
+    for act, is_cc in zip(activities, results, strict=True):
         if is_cc:
             skipped.append(act)
         else:
             kept.append(act)
-            
+
     return kept, skipped
 
 
-async def user_name_map(api: Bitrix24API, user_ids: List[int]) -> Dict[int, str]:
-    out: Dict[int, str] = {}
+async def user_name_map(api: Bitrix24API, user_ids: list[int]) -> dict[int, str]:
+    out: dict[int, str] = {}
     tasks = []
     sorted_uids = sorted(set(user_ids))
     for uid in sorted_uids:
         tasks.append(api.call("user.get", {"ID": int(uid)}))
-    
+
     results = await asyncio.gather(*tasks, return_exceptions=True)
-    
-    for uid, res in zip(sorted_uids, results):
+
+    for uid, res in zip(sorted_uids, results, strict=True):
         if isinstance(res, Exception):
             out[int(uid)] = str(uid)
             continue
@@ -157,11 +175,14 @@ async def user_name_map(api: Bitrix24API, user_ids: List[int]) -> Dict[int, str]
     return out
 
 
-async def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> List[str]:
+async def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> list[str]:
     try:
-        res = await api.call("crm.timeline.comment.list", {"filter": {"ENTITY_TYPE": "deal", "ENTITY_ID": int(deal_id)}})
+        res = await api.call(
+            "crm.timeline.comment.list",
+            {"filter": {"ENTITY_TYPE": "deal", "ENTITY_ID": int(deal_id)}},
+        )
         rows = res.get("result", []) or []
-        comments: List[str] = []
+        comments: list[str] = []
         for r in rows:
             txt = str((r or {}).get("COMMENT") or "").strip()
             if txt:
@@ -171,7 +192,7 @@ async def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> List[str]:
         return []
 
 
-def parse_dt(raw: Any) -> Optional[datetime]:
+def parse_dt(raw: Any) -> datetime | None:
     try:
         if not raw:
             return None
@@ -180,7 +201,7 @@ def parse_dt(raw: Any) -> Optional[datetime]:
         return None
 
 
-def guess_duration_sec(act: Dict[str, Any]) -> int:
+def guess_duration_sec(act: dict[str, Any]) -> int:
     try:
         st = act.get("START_TIME")
         en = act.get("END_TIME")
@@ -194,11 +215,11 @@ def guess_duration_sec(act: Dict[str, Any]) -> int:
     return 60
 
 
-def guess_duration_minutes(act: Dict[str, Any]) -> float:
+def guess_duration_minutes(act: dict[str, Any]) -> float:
     return round(guess_duration_sec(act) / 60.0, 2)
 
 
-def reaction_speed_label(first_delay_min: Optional[float]) -> str:
+def reaction_speed_label(first_delay_min: float | None) -> str:
     if first_delay_min is None:
         return "Нет звонка менеджера"
     if first_delay_min <= 15:
@@ -210,7 +231,9 @@ def reaction_speed_label(first_delay_min: Optional[float]) -> str:
     return "Критически поздно"
 
 
-def compute_discipline_metrics(deal: Dict[str, Any], calls: List[Dict[str, Any]], kpi: Dict[str, Any]) -> Dict[str, Any]:
+def compute_discipline_metrics(
+    deal: dict[str, Any], calls: list[dict[str, Any]], kpi: dict[str, Any]
+) -> dict[str, Any]:
     sla_cfg = kpi.get("sla", {})
     first_response_sla = float(sla_cfg.get("first_response_hours", FIRST_RESPONSE_SLA_HOURS))
     created = parse_dt(deal.get("DATE_CREATE"))
@@ -235,9 +258,9 @@ def compute_discipline_metrics(deal: Dict[str, Any], calls: List[Dict[str, Any]]
         "first_response_sla_ok": first_ok,
         "reaction_speed_label": reaction_speed_label(first_delay_min),
         "first_response_explanation": (
-            f"Скорость реакции — сколько минут прошло от создания сделки до первого звонка менеджера. "
+            f"Скорость реакции — сколько минут прошло от создания сделки до первого звонка менеджера. "  # noqa: E501
             f"Единая норма KPI: до 30 мин.; факт: {first_delay_min:g} мин."
             if first_delay_min is not None
-            else "Скорость реакции — время от создания сделки до первого звонка менеджера. Единая норма KPI: до 30 мин.; звонков менеджера нет."
+            else "Скорость реакции — время от создания сделки до первого звонка менеджера. Единая норма KPI: до 30 мин.; звонков менеджера нет."  # noqa: E501
         ),
     }

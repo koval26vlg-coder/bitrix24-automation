@@ -1,17 +1,17 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import hashlib
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pipelines.paths import REPORTS_DIR, TRANSCRIPTS_DIR
-
 
 STATE_CACHE_PATH = REPORTS_DIR / "state_cache.json"
 
 
-def _load_state_cache() -> Dict[str, Any]:
+def _load_state_cache() -> dict[str, Any]:
     try:
         if STATE_CACHE_PATH.exists():
             raw = json.loads(STATE_CACHE_PATH.read_text(encoding="utf-8"))
@@ -21,10 +21,12 @@ def _load_state_cache() -> Dict[str, Any]:
     return {}
 
 
-def _save_state_cache(cache: Dict[str, Any]) -> None:
+def _save_state_cache(cache: dict[str, Any]) -> None:
     try:
         STATE_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
-        STATE_CACHE_PATH.write_text(json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        STATE_CACHE_PATH.write_text(
+            json.dumps(cache, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
     except Exception:
         pass
 
@@ -43,23 +45,27 @@ def save_transcript_file(deal_id: str, activity_id: Any, task_id: str, text: str
     return path
 
 
-def find_latest_transcript_file(deal_id: Any, activity_id: Any) -> Optional[Path]:
+def find_latest_transcript_file(deal_id: Any, activity_id: Any) -> Path | None:
     safe_deal = re.sub(r"\D+", "", str(deal_id or ""))
     safe_activity = re.sub(r"\D+", "", str(activity_id or ""))
     if not safe_deal or not safe_activity or not TRANSCRIPTS_DIR.exists():
         return None
     pattern = f"deal{safe_deal}_activity{safe_activity}_*.txt"
-    files = sorted(TRANSCRIPTS_DIR.glob(pattern), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True)
+    files = sorted(
+        TRANSCRIPTS_DIR.glob(pattern),
+        key=lambda p: p.stat().st_mtime if p.exists() else 0,
+        reverse=True,
+    )
     return files[0] if files else None
 
 
 def load_cached_transcript(
-    state_cache: Dict[str, Any],
+    state_cache: dict[str, Any],
     call_id: str,
     deal_id: Any,
     activity_id: Any,
-) -> Tuple[Optional[str], Optional[Path]]:
-    candidates: List[Path] = []
+) -> tuple[str | None, Path | None]:
+    candidates: list[Path] = []
     cached = state_cache.get(call_id)
     if isinstance(cached, dict):
         cached_path = cached.get("transcript_path")
@@ -92,15 +98,15 @@ async def transcribe_with_bitnewton(
     deal_id: Any,
     activity_id: Any,
     diarize: bool,
-) -> Tuple[str, str, Path]:
+) -> tuple[str, str, Path]:
     # asr пока синхронный в asr/bitnewton.py, но мы можем обернуть в wait
     # В идеале asr тоже должен быть асинхронным
     task = asr.start_transcribing(str(audio_path), diarize=bool(diarize), remove_timestamps=True)
-    
+
     # Это блокирующая операция, но она ждет результата ASR
     # В будущем стоит перевести asr.wait_and_get_text на асинхронность
     text = asr.wait_and_get_text(task.task_id, timeout_sec=1800) or ""
-    
+
     transcript_path = save_transcript_file(
         deal_id=str(deal_id),
         activity_id=activity_id,
@@ -116,9 +122,12 @@ def transcribe_with_vibecode(
     audio_path: Path,
     deal_id: Any,
     activity_id: Any,
-) -> Tuple[str, str, Path]:
+) -> tuple[str, str, Path]:
     text = vibe.transcribe_audio(Path(audio_path), language="ru") or ""
-    task_id = "vibecode_asr_" + hashlib.sha256(Path(audio_path).name.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    task_id = (
+        "vibecode_asr_"
+        + hashlib.sha256(Path(audio_path).name.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    )
     transcript_path = save_transcript_file(
         deal_id=str(deal_id),
         activity_id=activity_id,

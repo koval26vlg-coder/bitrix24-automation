@@ -53,7 +53,11 @@ def test_load_retry_scope_collects_activity_and_deal_errors(tmp_path):
         json.dumps(
             [
                 {"deal_id": "10", "activity_id": 100, "error": "download failed"},
-                {"deal_url": "https://example.bitrix24.ru/crm/deal/details/20/", "activity_id": None, "error": "no calls"},
+                {
+                    "deal_url": "https://example.bitrix24.ru/crm/deal/details/20/",
+                    "activity_id": None,
+                    "error": "no calls",
+                },
                 {"deal_id": "30", "activity_id": 300, "error": None},
             ],
             ensure_ascii=False,

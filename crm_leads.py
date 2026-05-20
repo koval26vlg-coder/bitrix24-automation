@@ -1,9 +1,10 @@
-﻿import asyncio
-from bitrix24_api import Bitrix24API
+import asyncio
 from datetime import datetime, timedelta
-import pandas as pd
-import config
 
+import pandas as pd
+
+import config
+from bitrix24_api import Bitrix24API
 from logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -17,12 +18,23 @@ class LeadsManager:
         """Получить список лидов с фильтрацией (асинхронно)"""
         params = {
             "select": [
-                "ID", "TITLE", "NAME", "LAST_NAME", "STATUS_ID",
-                "SOURCE_ID", "OPPORTUNITY", "CURRENCY_ID",
-                "ASSIGNED_BY_ID", "CREATED_BY_ID", "DATE_CREATE",
-                "DATE_MODIFY", "PHONE", "EMAIL", "COMMENTS"
+                "ID",
+                "TITLE",
+                "NAME",
+                "LAST_NAME",
+                "STATUS_ID",
+                "SOURCE_ID",
+                "OPPORTUNITY",
+                "CURRENCY_ID",
+                "ASSIGNED_BY_ID",
+                "CREATED_BY_ID",
+                "DATE_CREATE",
+                "DATE_MODIFY",
+                "PHONE",
+                "EMAIL",
+                "COMMENTS",
             ],
-            "order": {"DATE_CREATE": "DESC"}
+            "order": {"DATE_CREATE": "DESC"},
         }
 
         if filter_params:
@@ -35,17 +47,13 @@ class LeadsManager:
         """Получить лиды за последние N дней"""
         date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        filter_params = {
-            ">=DATE_CREATE": date_from
-        }
+        filter_params = {">=DATE_CREATE": date_from}
 
         return await self.get_leads(filter_params)
 
     async def get_leads_by_status(self, status_id: str) -> list:
         """Получить лиды по статусу"""
-        filter_params = {
-            "STATUS_ID": status_id
-        }
+        filter_params = {"STATUS_ID": status_id}
 
         return await self.get_leads(filter_params)
 
@@ -57,15 +65,19 @@ class LeadsManager:
         """Экспорт лидов в Excel"""
         if not filename:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            filename = f"{config.REPORTS_DIR}/leads_{timestamp}.xlsx"        
+            filename = f"{config.REPORTS_DIR}/leads_{timestamp}.xlsx"
 
         df = pd.DataFrame(leads)
 
         if not df.empty:
             if "DATE_CREATE" in df.columns:
-                df["DATE_CREATE"] = pd.to_datetime(df["DATE_CREATE"], utc=True, errors="coerce").dt.tz_localize(None)
+                df["DATE_CREATE"] = pd.to_datetime(
+                    df["DATE_CREATE"], utc=True, errors="coerce"
+                ).dt.tz_localize(None)
             if "DATE_MODIFY" in df.columns:
-                df["DATE_MODIFY"] = pd.to_datetime(df["DATE_MODIFY"], utc=True, errors="coerce").dt.tz_localize(None)        
+                df["DATE_MODIFY"] = pd.to_datetime(
+                    df["DATE_MODIFY"], utc=True, errors="coerce"
+                ).dt.tz_localize(None)
 
         df.to_excel(filename, index=False, engine="openpyxl")
         logger.info(f"[OK] Отчет сохранен: {filename}")
@@ -82,8 +94,10 @@ class LeadsManager:
             "total": len(leads),
             "by_status": df["STATUS_ID"].value_counts().to_dict() if "STATUS_ID" in df else {},
             "by_source": df["SOURCE_ID"].value_counts().to_dict() if "SOURCE_ID" in df else {},
-            "total_opportunity": df["OPPORTUNITY"].astype(float).sum() if "OPPORTUNITY" in df else 0,       
-            "avg_opportunity": df["OPPORTUNITY"].astype(float).mean() if "OPPORTUNITY" in df else 0
+            "total_opportunity": (
+                df["OPPORTUNITY"].astype(float).sum() if "OPPORTUNITY" in df else 0
+            ),
+            "avg_opportunity": df["OPPORTUNITY"].astype(float).mean() if "OPPORTUNITY" in df else 0,
         }
 
         return stats

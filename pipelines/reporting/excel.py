@@ -6,6 +6,7 @@ import pandas as pd
 
 from pipelines.reporting.ru_columns import RU_COLUMNS
 
+
 def _excel_safe_value(value: Any) -> Any:
     if isinstance(value, str) and len(value) > 32000:
         return value[:31900] + "\n\n[Текст обрезан для Excel. Полная версия сохранена в txt-файле.]"
@@ -20,6 +21,7 @@ def _excel_df(df: pd.DataFrame) -> pd.DataFrame:
 
 def _ru_df(df: pd.DataFrame) -> pd.DataFrame:
     return _excel_df(df).rename(columns=RU_COLUMNS)
+
 
 def _format_excel_writer(writer: pd.ExcelWriter) -> None:
     try:
@@ -51,7 +53,10 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                 if isinstance(value, str) and ("\n" in value or len(value) > 90):
                     cell.alignment = Alignment(vertical="top", wrap_text=True)
             width = min(70, max(12, max_len + 2))
-            if any(word in header.lower() for word in ["расшифров", "вывод", "рекомендац", "диагност", "попытки", "ошибки"]):
+            if any(
+                word in header.lower()
+                for word in ["расшифров", "вывод", "рекомендац", "диагност", "попытки", "ошибки"]
+            ):
                 width = min(90, max(width, 45))
             ws.column_dimensions[col_cells[0].column_letter].width = width
 
@@ -104,7 +109,9 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
 
             script_profile_status_col = headers.get("Статус соответствия скрипту")
             if script_profile_status_col:
-                status = str(ws.cell(row=row_idx, column=script_profile_status_col).value or "").lower()
+                status = str(
+                    ws.cell(row=row_idx, column=script_profile_status_col).value or ""
+                ).lower()
                 if "не соответствует" in status:
                     fill = critical_fill
                 elif "частично" in status or "замечания" in status:
@@ -117,7 +124,11 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                     for col_idx in range(1, ws.max_column + 1):
                         ws.cell(row=row_idx, column=col_idx).fill = fill
 
-            risk_headers = ["Статус срока в стадии", "Статус общего срока сделки", "Риск движения по воронке"]
+            risk_headers = [
+                "Статус срока в стадии",
+                "Статус общего срока сделки",
+                "Риск движения по воронке",
+            ]
             risk_values = " ".join(
                 str(ws.cell(row=row_idx, column=headers[h]).value or "").lower()
                 for h in risk_headers
@@ -135,7 +146,9 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                 checklist_score_col = headers.get("Оценка CRM-критерия")
             if checklist_score_col:
                 try:
-                    checklist_score = float(ws.cell(row=row_idx, column=checklist_score_col).value or 0)
+                    checklist_score = float(
+                        ws.cell(row=row_idx, column=checklist_score_col).value or 0
+                    )
                     if checklist_score <= 0:
                         fill = critical_fill
                     elif checklist_score < 1:
@@ -167,7 +180,9 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
             avg_stage_percent_col = headers.get("Среднее выполнение этапа, %")
             if avg_stage_percent_col:
                 try:
-                    avg_stage_percent = float(ws.cell(row=row_idx, column=avg_stage_percent_col).value or 0)
+                    avg_stage_percent = float(
+                        ws.cell(row=row_idx, column=avg_stage_percent_col).value or 0
+                    )
                     if avg_stage_percent < 50:
                         fill = critical_fill
                     elif avg_stage_percent < 70:
@@ -185,7 +200,9 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                 criterion_completion_col = headers.get("Выполнение CRM-критерия, %")
             if criterion_completion_col:
                 try:
-                    completion = float(ws.cell(row=row_idx, column=criterion_completion_col).value or 0)
+                    completion = float(
+                        ws.cell(row=row_idx, column=criterion_completion_col).value or 0
+                    )
                     if completion < 50:
                         fill = critical_fill
                     elif completion < 70:

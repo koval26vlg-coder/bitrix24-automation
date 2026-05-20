@@ -1,10 +1,11 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import asyncio
+
+from logging_setup import get_logger
 from pipelines.bitnewton_sync import run_sync
 from pipelines.cli import build_parser
 from pipelines.processing.context import FatalProcessingError
-
-from logging_setup import get_logger
 
 logger = get_logger(__name__)
 

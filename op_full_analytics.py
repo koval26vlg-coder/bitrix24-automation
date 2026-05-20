@@ -1,15 +1,17 @@
-﻿import asyncio
-from logging_setup import get_logger
-
-logger = get_logger(__name__)
 """
 Полная расширенная аналитика по воронке ОП
 """
 
-from bitrix24_api import Bitrix24API
+import asyncio
 from datetime import datetime, timedelta
+
 import pandas as pd
+
 import config
+from bitrix24_api import Bitrix24API
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 async def main():
@@ -41,14 +43,26 @@ async def main():
         filter_params = {"CATEGORY_ID": op_category_id} if op_category_id else {}
 
         # Используем get_all для надежности, если сделок много
-        deals = await api.get_all("crm.deal.list", {
-            "filter": filter_params,
-            "select": [
-                "ID", "TITLE", "STAGE_ID", "CATEGORY_ID", "DATE_CREATE",
-                "DATE_MODIFY", "CLOSEDATE", "ASSIGNED_BY_ID", "OPPORTUNITY",
-                "CURRENCY_ID", "BEGINDATE", "CLOSED"
-            ],
-        })
+        deals = await api.get_all(
+            "crm.deal.list",
+            {
+                "filter": filter_params,
+                "select": [
+                    "ID",
+                    "TITLE",
+                    "STAGE_ID",
+                    "CATEGORY_ID",
+                    "DATE_CREATE",
+                    "DATE_MODIFY",
+                    "CLOSEDATE",
+                    "ASSIGNED_BY_ID",
+                    "OPPORTUNITY",
+                    "CURRENCY_ID",
+                    "BEGINDATE",
+                    "CLOSED",
+                ],
+            },
+        )
 
         logger.info(f"Всего сделок: {len(deals)}\n")
 
@@ -67,9 +81,15 @@ async def main():
 
         # Конвертируем типы данных
         df["OPPORTUNITY"] = pd.to_numeric(df["OPPORTUNITY"], errors="coerce").fillna(0)
-        df["DATE_CREATE"] = pd.to_datetime(df["DATE_CREATE"], utc=True, errors="coerce").dt.tz_localize(None)
-        df["DATE_MODIFY"] = pd.to_datetime(df["DATE_MODIFY"], utc=True, errors="coerce").dt.tz_localize(None)
-        df["CLOSEDATE"] = pd.to_datetime(df["CLOSEDATE"], utc=True, errors="coerce").dt.tz_localize(None)
+        df["DATE_CREATE"] = pd.to_datetime(
+            df["DATE_CREATE"], utc=True, errors="coerce"
+        ).dt.tz_localize(None)
+        df["DATE_MODIFY"] = pd.to_datetime(
+            df["DATE_MODIFY"], utc=True, errors="coerce"
+        ).dt.tz_localize(None)
+        df["CLOSEDATE"] = pd.to_datetime(df["CLOSEDATE"], utc=True, errors="coerce").dt.tz_localize(
+            None
+        )
 
         # Добавляем имена менеджеров
         df["MANAGER_NAME"] = df["ASSIGNED_BY_ID"].apply(lambda x: users.get(str(x), f"ID {x}"))
@@ -88,10 +108,11 @@ async def main():
         recent_deals = df[df["DATE_CREATE"] >= date_30_days_ago]
 
         if not recent_deals.empty:
-            daily_stats = recent_deals.groupby("CREATE_DATE").agg({
-                "ID": "count",
-                "OPPORTUNITY": "sum"
-            }).rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+            daily_stats = (
+                recent_deals.groupby("CREATE_DATE")
+                .agg({"ID": "count", "OPPORTUNITY": "sum"})
+                .rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+            )
 
             logger.info("\nСделки по дням (последние 30 дней):")
             logger.info(daily_stats.to_string())
@@ -104,10 +125,11 @@ async def main():
         logger.info("=" * 80)
 
         if not recent_deals.empty:
-            weekly_stats = recent_deals.groupby("CREATE_WEEK").agg({
-                "ID": "count",
-                "OPPORTUNITY": "sum"
-            }).rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+            weekly_stats = (
+                recent_deals.groupby("CREATE_WEEK")
+                .agg({"ID": "count", "OPPORTUNITY": "sum"})
+                .rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+            )
 
             logger.info("\nСделки по неделям (последние 30 дней):")
             logger.info(weekly_stats.to_string())
@@ -120,10 +142,11 @@ async def main():
         logger.info("=" * 80)
 
         # Статистика по стадиям
-        stage_stats = df.groupby("STAGE_ID").agg({
-            "ID": "count",
-            "OPPORTUNITY": "sum"
-        }).rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+        stage_stats = (
+            df.groupby("STAGE_ID")
+            .agg({"ID": "count", "OPPORTUNITY": "sum"})
+            .rename(columns={"ID": "Количество", "OPPORTUNITY": "Сумма"})
+        )
 
         stage_stats["Процент от общего"] = (stage_stats["Количество"] / len(df) * 100).round(1)
         stage_stats["Средний чек"] = (stage_stats["Сумма"] / stage_stats["Количество"]).round(2)
@@ -136,7 +159,9 @@ async def main():
         total_deals = len(df)
         in_progress = len(df[df["STAGE_ID"].str.contains("EXECUTING", na=False)])
         final_invoice = len(df[df["STAGE_ID"].str.contains("FINAL_INVOICE", na=False)])
-        closed_won = len(df[(df["CLOSED"] == "Y") & (~df["STAGE_ID"].str.contains("LOSE", na=False))])
+        closed_won = len(
+            df[(df["CLOSED"] == "Y") & (~df["STAGE_ID"].str.contains("LOSE", na=False))]
+        )
         closed_lost = len(df[df["STAGE_ID"].str.contains("LOSE", na=False)])
 
         logger.info(f"  Всего сделок: {total_deals} (100%)")
@@ -154,10 +179,11 @@ async def main():
         logger.info("4. DETALNIY ANALIZ PO MENEDZHERAM")
         logger.info("=" * 80)
 
-        manager_stats = df.groupby("MANAGER_NAME").agg({
-            "ID": "count",
-            "OPPORTUNITY": ["sum", "mean", "max"]
-        }).round(2)
+        manager_stats = (
+            df.groupby("MANAGER_NAME")
+            .agg({"ID": "count", "OPPORTUNITY": ["sum", "mean", "max"]})
+            .round(2)
+        )
 
         manager_stats.columns = ["Количество сделок", "Общая сумма", "Средний чек", "Макс сделка"]
         manager_stats = manager_stats.sort_values("Общая сумма", ascending=False)
@@ -170,7 +196,12 @@ async def main():
         for idx, (manager, row) in enumerate(manager_stats.head(5).iterrows(), 1):
             manager_deals = df[df["MANAGER_NAME"] == manager]
 
-            won = len(manager_deals[(manager_deals["CLOSED"] == "Y") & (~manager_deals["STAGE_ID"].str.contains("LOSE", na=False))])
+            won = len(
+                manager_deals[
+                    (manager_deals["CLOSED"] == "Y")
+                    & (~manager_deals["STAGE_ID"].str.contains("LOSE", na=False))
+                ]
+            )
             lost = len(manager_deals[manager_deals["STAGE_ID"].str.contains("LOSE", na=False)])
             in_work = len(manager_deals) - won - lost
 
@@ -192,7 +223,9 @@ async def main():
 
         prev_month = (current_month - timedelta(days=1)).replace(day=1)
         prev_month_end = current_month - timedelta(seconds=1)
-        prev_month_deals = df[(df["DATE_CREATE"] >= prev_month) & (df["DATE_CREATE"] <= prev_month_end)]
+        prev_month_deals = df[
+            (df["DATE_CREATE"] >= prev_month) & (df["DATE_CREATE"] <= prev_month_end)
+        ]
 
         current_month_label = current_month.strftime("%Y-%m")
         logger.info(f"\nТекущий месяц ({current_month_label}):")
@@ -210,10 +243,12 @@ async def main():
 
         # Сравнение
         if len(prev_month_deals) > 0:
-            deals_change = ((len(current_month_deals) - len(prev_month_deals)) / len(prev_month_deals) * 100)
+            deals_change = (
+                (len(current_month_deals) - len(prev_month_deals)) / len(prev_month_deals) * 100
+            )
             prev_sum = prev_month_deals["OPPORTUNITY"].sum()
             if prev_sum > 0:
-                sum_change = ((current_month_deals["OPPORTUNITY"].sum() - prev_sum) / prev_sum * 100)
+                sum_change = (current_month_deals["OPPORTUNITY"].sum() - prev_sum) / prev_sum * 100
                 logger.info("\nИзменение (текущий vs предыдущий):")
                 logger.info(f"  Количество сделок: {deals_change:+.1f}%")
                 logger.info(f"  Сумма: {sum_change:+.1f}%")

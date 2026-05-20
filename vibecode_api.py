@@ -161,7 +161,9 @@ class VibeCodeClient:
                 if response.status_code in (429,) or 500 <= response.status_code <= 599:
                     last_error = f"HTTP {response.status_code}: {response.text[:500]}"
                     if attempt < self.max_attempts:
-                        sleep_for = min(10.0, 0.5 * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
+                        sleep_for = min(10.0, 0.5 * (2 ** (attempt - 1))) * (
+                            0.7 + random.random() * 0.6
+                        )
                         logger.warning(
                             f"[WARN] Retry {attempt}/{self.max_attempts} VibeCode {method} {path}: "
                             f"{last_error}; sleep={sleep_for:.2f}s"
@@ -169,7 +171,9 @@ class VibeCodeClient:
                         time.sleep(sleep_for)
                         continue
                 if response.status_code >= 400:
-                    raise VibeCodeError(f"VibeCode {method} {path} HTTP {response.status_code}: {response.text[:1000]}")
+                    raise VibeCodeError(
+                        f"VibeCode {method} {path} HTTP {response.status_code}: {response.text[:1000]}"  # noqa: E501
+                    )
 
                 content_type = response.headers.get("Content-Type", "")
                 if "application/json" not in content_type:
@@ -181,14 +185,18 @@ class VibeCodeClient:
             except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
                 last_error = f"{type(e).__name__}: {e}"
                 if attempt < self.max_attempts:
-                    sleep_for = min(10.0, 0.5 * (2 ** (attempt - 1))) * (0.7 + random.random() * 0.6)
+                    sleep_for = min(10.0, 0.5 * (2 ** (attempt - 1))) * (
+                        0.7 + random.random() * 0.6
+                    )
                     logger.warning(
                         f"[WARN] Retry {attempt}/{self.max_attempts} VibeCode {method} {path}: "
                         f"{last_error}; sleep={sleep_for:.2f}s"
                     )
                     time.sleep(sleep_for)
                     continue
-                raise VibeCodeError(f"VibeCode request failed after {self.max_attempts} attempts: {last_error}")
+                raise VibeCodeError(
+                    f"VibeCode request failed after {self.max_attempts} attempts: {last_error}"
+                ) from e
         raise VibeCodeError(last_error or f"VibeCode {method} {path} failed")
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
@@ -206,7 +214,9 @@ class VibeCodeClient:
         row = data.get("data") if isinstance(data, dict) else {}
         return vibe_deal_to_bitrix(row or {})
 
-    def search_deals(self, flt: dict[str, Any], limit: int = 200, sort: dict[str, str] | None = None) -> list[dict[str, Any]]:
+    def search_deals(
+        self, flt: dict[str, Any], limit: int = 200, sort: dict[str, str] | None = None
+    ) -> list[dict[str, Any]]:
         data = self.post(
             "/v1/deals/search",
             {
@@ -237,16 +247,25 @@ class VibeCodeClient:
 
     def fetch_stage_history(self, deal_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
         out: dict[str, list[dict[str, Any]]] = {str(deal_id): [] for deal_id in deal_ids if deal_id}
-        for deal_id in dict.fromkeys(str(deal_id) for deal_id in deal_ids if str(deal_id).isdigit()):
-            data = self.get("/v1/stage-history", params={"entityType": "deal", "ownerId": int(deal_id), "limit": 5000})
+        for deal_id in dict.fromkeys(
+            str(deal_id) for deal_id in deal_ids if str(deal_id).isdigit()
+        ):
+            data = self.get(
+                "/v1/stage-history",
+                params={"entityType": "deal", "ownerId": int(deal_id), "limit": 5000},
+            )
             rows = data.get("data") if isinstance(data, dict) else []
-            out[str(deal_id)] = [vibe_stage_history_to_bitrix(row) for row in rows if isinstance(row, dict)]
+            out[str(deal_id)] = [
+                vibe_stage_history_to_bitrix(row) for row in rows if isinstance(row, dict)
+            ]
         return out
 
     def fetch_stage_name_map(self, entity_ids: list[str]) -> dict[str, str]:
         out: dict[str, str] = {}
         for entity_id in sorted(set(entity_ids)):
-            data = self.post("/v1/statuses/search", {"filter": {"entityId": entity_id}, "limit": 5000})
+            data = self.post(
+                "/v1/statuses/search", {"filter": {"entityId": entity_id}, "limit": 5000}
+            )
             rows = data.get("data") if isinstance(data, dict) else []
             for row in rows:
                 if not isinstance(row, dict):
@@ -261,7 +280,9 @@ class VibeCodeClient:
     def download_file(self, file_id: int, out_path: Path) -> Path:
         response = self._request("GET", f"/v1/files/{int(file_id)}/download", stream=True)
         if not isinstance(response, requests.Response):
-            raise VibeCodeError(f"VibeCode file download returned JSON for file {file_id}: {response}")
+            raise VibeCodeError(
+                f"VibeCode file download returned JSON for file {file_id}: {response}"
+            )
         out_path.parent.mkdir(parents=True, exist_ok=True)
         with out_path.open("wb") as handle:
             for chunk in response.iter_content(chunk_size=1024 * 256):
@@ -299,10 +320,16 @@ class VibeCodeClient:
                     "/v1/calls/transcription",
                     {"callId": cid, "messages": [{"side": "user", "text": transcript_text or ""}]},
                 )
-                return {"call_id_used": cid, "result": data.get("data") if isinstance(data, dict) else data, "source": "vibecode"}
+                return {
+                    "call_id_used": cid,
+                    "result": data.get("data") if isinstance(data, dict) else data,
+                    "source": "vibecode",
+                }
             except Exception as e:
                 errors.append(f"{cid}: {e}")
-        raise VibeCodeError("Не удалось прикрепить расшифровку через VibeCode: " + " | ".join(errors))
+        raise VibeCodeError(
+            "Не удалось прикрепить расшифровку через VibeCode: " + " | ".join(errors)
+        )
 
     def timeline_log(self, deal_id: str, title: str, text: str) -> dict[str, Any]:
         data = self.post(

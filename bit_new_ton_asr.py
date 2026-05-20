@@ -1,14 +1,13 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import asyncio
 import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import httpx
 from dotenv import load_dotenv
-
 
 load_dotenv(override=True)
 
@@ -62,7 +61,10 @@ class BitNewtonASR:
 
         url = f"{self.base_url}/start_transcribing"
         headers = {"token": self.token}
-        params = {"diarize": str(diarize).lower(), "remove_timestamps": str(remove_timestamps).lower()}
+        params = {
+            "diarize": str(diarize).lower(),
+            "remove_timestamps": str(remove_timestamps).lower(),
+        }
 
         p = Path(file_path)
         if not p.exists():
@@ -75,7 +77,9 @@ class BitNewtonASR:
                 self._raise_for_auth_if_needed(r.status_code, r.text, "ASR start_transcribing")
                 raise BitNewtonError(f"ASR start_transcribing HTTP {r.status_code}: {r.text[:500]}")
             data = r.json()
-            return BitNewtonTask(task_id=str(data.get("task_id")), message=str(data.get("message") or ""))
+            return BitNewtonTask(
+                task_id=str(data.get("task_id")), message=str(data.get("message") or "")
+            )
         finally:
             files["file"][1].close()
 
@@ -105,7 +109,7 @@ class BitNewtonASR:
                 raise
             return False
 
-    async def get_file(self, task_id: str, file_type: Optional[str] = None) -> bytes:
+    async def get_file(self, task_id: str, file_type: str | None = None) -> bytes:
         url = f"{self.base_url}/get_file"
         headers = {"token": self.token}
         params = {"task_id": task_id}
@@ -131,12 +135,16 @@ class BitNewtonASR:
             status = str(st.get("status") or "").lower()
             progress = st.get("progress")
 
-            if status in {"done", "success", "completed", "finished"} or (isinstance(progress, int) and progress >= 100):
+            if status in {"done", "success", "completed", "finished"} or (
+                isinstance(progress, int) and progress >= 100
+            ):
                 break
             if status in {"error", "failed"}:
                 raise BitNewtonError(f"ASR task failed: {st}")
             if time.time() - start > timeout_sec:
-                raise BitNewtonError(f"ASR timeout waiting task {task_id}. last_status={last_status}")
+                raise BitNewtonError(
+                    f"ASR timeout waiting task {task_id}. last_status={last_status}"
+                )
             await asyncio.sleep(poll_interval_sec)
 
         content = await self.get_file(task_id, file_type="txt")
@@ -146,7 +154,7 @@ class BitNewtonASR:
             return content.decode(errors="replace").strip()
 
 
-def env_bitnewton_asr() -> Optional[BitNewtonASR]:
+def env_bitnewton_asr() -> BitNewtonASR | None:
     base_url = os.getenv("BITNEWTON_ASR_URL", "https://bit-asr.1bitai.ru").strip()
     token = os.getenv("BITNEWTON_TOKEN", "").strip()
     if not token:

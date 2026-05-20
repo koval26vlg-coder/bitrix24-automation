@@ -1,7 +1,8 @@
 from __future__ import annotations
+
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from asr.bitnewton import BitNewtonAuthError
 from bitrix.transcriptions import attach_transcription_to_bitrix
@@ -32,20 +33,20 @@ async def process_no_calls_deal(
     *,
     ctx: ProcessingContext,
     deal_id: str,
-    deal: Dict[str, Any],
-    comments: List[str],
-    discipline: Dict[str, Any],
-    deal_quality: Dict[str, Any],
-    manager_id: Optional[int],
-    call_center_acts: List[Dict[str, Any]],
+    deal: dict[str, Any],
+    comments: list[str],
+    discipline: dict[str, Any],
+    deal_quality: dict[str, Any],
+    manager_id: int | None,
+    call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int = 0,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     error: str = (
         "По сделке не найдено звонков менеджера после исключения Call-центра"
         if call_center_acts
         else "По сделке не найдено звонков"
     )
-    row: Dict[str, Any] = {
+    row: dict[str, Any] = {
         "deal_id": deal_id,
         "deal_url": deal_url_from_id(ctx.args.domain, deal_id),
         "stage_id": deal.get("STAGE_ID"),
@@ -54,7 +55,9 @@ async def process_no_calls_deal(
         "kpi_profile": (ctx.kpi.get("profile") or {}).get("name"),
         "kpi_version": (ctx.kpi.get("profile") or {}).get("version"),
         "kpi_profile_cmp": (ctx.kpi_cmp.get("profile") or {}).get("name") if ctx.kpi_cmp else None,
-        "kpi_version_cmp": (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None,
+        "kpi_version_cmp": (
+            (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None
+        ),
         "activity_id": None,
         "origin_id": None,
         "subject": "Звонков не найдено",
@@ -74,9 +77,13 @@ async def process_no_calls_deal(
     row.update(discipline)
     row.update(deal_quality)
 
-    await apply_scores(row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator)
+    await apply_scores(
+        row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator
+    )
     if ctx.kpi_cmp is not None:
-        await apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator)
+        await apply_scores(
+            row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator
+        )
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
             2,
@@ -93,17 +100,17 @@ def _build_call_row(
     *,
     args: Any,
     deal_id: str,
-    deal: Dict[str, Any],
-    activity: Dict[str, Any],
-    discipline: Dict[str, Any],
-    deal_quality: Dict[str, Any],
-    manager_id: Optional[int],
-    kpi: Dict[str, Any],
-    kpi_cmp: Optional[Dict[str, Any]],
-    call_center_acts: List[Dict[str, Any]],
+    deal: dict[str, Any],
+    activity: dict[str, Any],
+    discipline: dict[str, Any],
+    deal_quality: dict[str, Any],
+    manager_id: int | None,
+    kpi: dict[str, Any],
+    kpi_cmp: dict[str, Any] | None,
+    call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int = 0,
-) -> Dict[str, Any]:
-    row: Dict[str, Any] = {
+) -> dict[str, Any]:
+    row: dict[str, Any] = {
         "deal_id": deal_id,
         "deal_url": deal_url_from_id(args.domain, deal_id),
         "stage_id": deal.get("STAGE_ID"),
@@ -133,7 +140,9 @@ def _build_call_row(
     return row
 
 
-async def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], text: str) -> str:
+async def _fetch_bitrix_card_transcript(
+    ctx: ProcessingContext, row: dict[str, Any], text: str
+) -> str:
     args: Any = ctx.args
     bitrix_text: str = ""
     if args.fetch_bitrix_card_transcript and args.ui_download:
@@ -142,7 +151,9 @@ async def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, A
 
             browser: str = str(getattr(args, "ui_browser", "chrome"))
             ui_timeout_sec: int = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
-            browser_profile_directory: str = str(getattr(args, "browser_profile_directory", "Default") or "Default")
+            browser_profile_directory: str = str(
+                getattr(args, "browser_profile_directory", "Default") or "Default"
+            )
             if ctx.ui_browser_session is None:
                 ctx.ui_browser_session = UiBrowserSession(
                     downloads_dir=ctx.ui_audio_dir,
@@ -166,7 +177,9 @@ async def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, A
                 row["bitrix_card_transcript_status"] = "Получена"
                 row["transcript_match_score"] = transcript_match_score(text or "", bitrix_text)
             else:
-                row["bitrix_card_transcript_status"] = tr_res.error or "Расшифровка Bitrix не найдена"
+                row["bitrix_card_transcript_status"] = (
+                    tr_res.error or "Расшифровка Bitrix не найдена"
+                )
         except Exception as e:
             row["bitrix_card_transcript_status"] = f"Не удалось прочитать расшифровку Bitrix: {e}"
     else:
@@ -177,11 +190,11 @@ async def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, A
 async def _mark_asr_skipped(
     *,
     ctx: ProcessingContext,
-    row: Dict[str, Any],
-    deal: Dict[str, Any],
-    comments: List[str],
+    row: dict[str, Any],
+    deal: dict[str, Any],
+    comments: list[str],
     reason: str,
-) -> Tuple[Dict[str, Any], bool]:
+) -> tuple[dict[str, Any], bool]:
     row["asr_skipped"] = True
     row["asr_status"] = f"ASR пропущена: {reason}"
     row["bitnewton_task_id"] = "skipped_asr"
@@ -190,32 +203,49 @@ async def _mark_asr_skipped(
     row["bitrix_card_transcript_status"] = "Не запрашивалась: ASR пропущена"
     row["combined_transcript_text"] = ""
 
-    await apply_scores(row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator)
+    await apply_scores(
+        row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator
+    )
     if ctx.kpi_cmp is not None:
-        await apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator)
+        await apply_scores(
+            row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator
+        )
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
             2,
         )
     row["call_quality_score"] = 0.0
-    row["call_quality_details"] = "Качество разговора не рассчитано: Bit.Newton недоступен, расшифровки нет."
-    row["call_quality_conclusion"] = "Разговор не оценен: новая ASR-расшифровка пропущена из-за проблемы с Bit.Newton."
-    row["conversation_meaning"] = "Нет расшифровки: можно оценить только CRM-часть и движение сделки."
-    row["recommendations"] = "Обновить BITNEWTON_TOKEN и запустить режим «Повторить только ошибки» или обычную обработку с кэшем."
+    row["call_quality_details"] = (
+        "Качество разговора не рассчитано: Bit.Newton недоступен, расшифровки нет."
+    )
+    row["call_quality_conclusion"] = (
+        "Разговор не оценен: новая ASR-расшифровка пропущена из-за проблемы с Bit.Newton."
+    )
+    row["conversation_meaning"] = (
+        "Нет расшифровки: можно оценить только CRM-часть и движение сделки."
+    )
+    row["recommendations"] = (
+        "Обновить BITNEWTON_TOKEN и запустить режим «Повторить только ошибки» или обычную обработку с кэшем."  # noqa: E501
+    )
     return row, True
 
 
-async def _attach_transcription(ctx: ProcessingContext, call_id: str, transcript_text: str, duration: int) -> Dict[str, Any]:
+async def _attach_transcription(
+    ctx: ProcessingContext, call_id: str, transcript_text: str, duration: int
+) -> dict[str, Any]:
     if _external_writes_disabled(ctx):
         reason = "dry_run" if _dry_run_enabled(ctx) else "no_external_write"
         return {"skipped": True, "reason": reason}
 
     if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_attach_transcription", False)):
         try:
-            res: Dict[str, Any] = ctx.vibe.attach_transcription(call_id, transcript_text)
+            res: dict[str, Any] = ctx.vibe.attach_transcription(call_id, transcript_text)
             return res
         except Exception as e:
-            print(f"[WARN] VibeCode calls/transcription не сработал, fallback на Bitrix REST: {e}", flush=True)
+            print(
+                f"[WARN] VibeCode calls/transcription не сработал, fallback на Bitrix REST: {e}",
+                flush=True,
+            )
 
     return await attach_transcription_to_bitrix(
         ctx.api,
@@ -225,7 +255,7 @@ async def _attach_transcription(ctx: ProcessingContext, call_id: str, transcript
     )
 
 
-async def _timeline_log_analysis(ctx: ProcessingContext, deal_id: str, row: Dict[str, Any]) -> None:
+async def _timeline_log_analysis(ctx: ProcessingContext, deal_id: str, row: dict[str, Any]) -> None:
     if ctx.vibe is None or not bool(getattr(ctx.args, "vibecode_timeline_log", False)):
         return
     if _external_writes_disabled(ctx):
@@ -239,10 +269,10 @@ async def _timeline_log_analysis(ctx: ProcessingContext, deal_id: str, row: Dict
         text: str = (
             f"Итоговая оценка: {score}. Качество разговора: {call_score}.\n"
             f"Риск движения сделки: {risk}.\n\n"
-            f"Вывод: {row.get('call_quality_conclusion') or row.get('conversation_meaning') or ''}\n\n"
+            f"Вывод: {row.get('call_quality_conclusion') or row.get('conversation_meaning') or ''}\n\n"  # noqa: E501
             f"Рекомендации:\n{row.get('recommendations') or row.get('improvement_moments') or ''}"
         ).strip()
-        result: Dict[str, Any] = ctx.vibe.timeline_log(deal_id, "AI-анализ звонка", text[:6000])
+        result: dict[str, Any] = ctx.vibe.timeline_log(deal_id, "AI-анализ звонка", text[:6000])
         row["timeline_log_result"] = result
     except Exception as e:
         row["timeline_log_error"] = str(e)
@@ -252,16 +282,16 @@ async def process_call(
     *,
     ctx: ProcessingContext,
     deal_id: str,
-    deal: Dict[str, Any],
-    comments: List[str],
-    discipline: Dict[str, Any],
-    deal_quality: Dict[str, Any],
-    manager_id: Optional[int],
-    call_center_acts: List[Dict[str, Any]],
-    activity: Dict[str, Any],
+    deal: dict[str, Any],
+    comments: list[str],
+    discipline: dict[str, Any],
+    deal_quality: dict[str, Any],
+    manager_id: int | None,
+    call_center_acts: list[dict[str, Any]],
+    activity: dict[str, Any],
     skipped_short_calls: int = 0,
-) -> Tuple[Dict[str, Any], bool]:
-    row: Dict[str, Any] = _build_call_row(
+) -> tuple[dict[str, Any], bool]:
+    row: dict[str, Any] = _build_call_row(
         args=ctx.args,
         deal_id=deal_id,
         deal=deal,
@@ -281,16 +311,29 @@ async def process_call(
             raise RuntimeError("Нет ORIGIN_ID (CALL_ID) для резолва записи")
 
         if not bool(getattr(ctx.args, "no_reuse_transcripts", False)):
-            cached_text, cached_path = load_cached_transcript(ctx.state_cache, call_id, deal_id, row.get("activity_id"))
+            cached_text, cached_path = load_cached_transcript(
+                ctx.state_cache, call_id, deal_id, row.get("activity_id")
+            )
             if cached_text and cached_path:
                 row["bitnewton_task_id"] = "cache"
                 row["transcript_path"] = str(cached_path)
                 row["transcript_text"] = cached_text
                 row["transcript_excerpt"] = cached_text[:1200]
                 row["transcript_hash"] = _sha256_text(cached_text)
-                row["bitrix_card_transcript_status"] = "Не запрашивалась: использована сохранённая расшифровка"
+                row["bitrix_card_transcript_status"] = (
+                    "Не запрашивалась: использована сохранённая расшифровка"
+                )
 
-                await finalize_transcript_analysis(row, deal, comments, cached_text, "", ctx.kpi, ctx.kpi_cmp, codex_evaluator=ctx.codex_evaluator)
+                await finalize_transcript_analysis(
+                    row,
+                    deal,
+                    comments,
+                    cached_text,
+                    "",
+                    ctx.kpi,
+                    ctx.kpi_cmp,
+                    codex_evaluator=ctx.codex_evaluator,
+                )
 
                 if ctx.args.force_attach:
                     if _external_writes_disabled(ctx):
@@ -389,12 +432,21 @@ async def process_call(
 
         bitrix_text = await _fetch_bitrix_card_transcript(ctx, row, text)
 
-        await finalize_transcript_analysis(row, deal, comments, text or "", bitrix_text, ctx.kpi, ctx.kpi_cmp, codex_evaluator=ctx.codex_evaluator)
+        await finalize_transcript_analysis(
+            row,
+            deal,
+            comments,
+            text or "",
+            bitrix_text,
+            ctx.kpi,
+            ctx.kpi_cmp,
+            codex_evaluator=ctx.codex_evaluator,
+        )
 
         txt_hash: str = _sha256_text(text or "")
         row["transcript_hash"] = txt_hash
         cached_val: Any = ctx.state_cache.get(call_id)
-        cached: Dict[str, Any] = (cached_val or {}) if isinstance(cached_val, dict) else {}
+        cached: dict[str, Any] = (cached_val or {}) if isinstance(cached_val, dict) else {}
 
         if (not ctx.args.force_attach) and cached and cached.get("hash") == txt_hash:
             row["attach_result"] = {"skipped": True, "reason": "state_cache_same_hash"}
@@ -427,7 +479,9 @@ async def process_call(
         return row, True
     except BitNewtonAuthError as e:
         ctx.asr_disabled_reason = str(e)
-        return await _mark_asr_skipped(ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e))
+        return await _mark_asr_skipped(
+            ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e)
+        )
     except Exception as e:
         row["error"] = str(e)
         return row, False

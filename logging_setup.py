@@ -1,4 +1,4 @@
-﻿from __future__ import annotations
+from __future__ import annotations
 
 import logging
 import os
@@ -42,4 +42,3 @@ def get_logger(name: str, level: int = logging.INFO) -> logging.Logger:
 
     logger.propagate = False
     return logger
-

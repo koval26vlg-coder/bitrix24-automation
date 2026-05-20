@@ -9,7 +9,7 @@ import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import quote
 
 import requests
@@ -18,35 +18,58 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from asr.bitnewton import BitNewtonError, env_bitnewton_asr
-from bitrix.api import Bitrix24API
-from bitrix.recordings import guess_recording_url
-
-from logging_setup import get_logger
+from asr.bitnewton import BitNewtonError, env_bitnewton_asr  # noqa: E402
+from bitrix.api import Bitrix24API  # noqa: E402
+from bitrix.recordings import guess_recording_url  # noqa: E402
+from logging_setup import get_logger  # noqa: E402
 
 logger = get_logger(__name__)
 
 
 def build_parser() -> argparse.ArgumentParser:
-    p = argparse.ArgumentParser(description="Вывести пример ответа voximplant.statistic.get (1 звонок).")
-    p.add_argument("--days", type=int, default=3, help="За сколько последних дней искать звонок (по дате).")
+    p = argparse.ArgumentParser(
+        description="Вывести пример ответа voximplant.statistic.get (1 звонок)."
+    )
+    p.add_argument(
+        "--days", type=int, default=3, help="За сколько последних дней искать звонок (по дате)."
+    )
     p.add_argument("--limit", type=int, default=10, help="Сколько звонков запросить у API.")
     p.add_argument("--pretty", action="store_true", help="Красивый JSON (indent=2).")
-    p.add_argument("--transcribe", action="store_true", help="Скачать запись и транскрибировать через Bit.Newton (нужен BITNEWTON_TOKEN).")
-    p.add_argument("--diarize", action="store_true", help="Включить диаризацию (разделение на спикеров), если поддерживается.")
-    p.add_argument("--selenium-fallback", action="store_true", help="Если прямое скачивание не удалось — скачать через Chrome (UI).")
-    p.add_argument("--audio-file", type=str, default="", help="Путь к локальному mp3/wav. Если указан — скачивание из Bitrix пропускается.")
+    p.add_argument(
+        "--transcribe",
+        action="store_true",
+        help="Скачать запись и транскрибировать через Bit.Newton (нужен BITNEWTON_TOKEN).",
+    )
+    p.add_argument(
+        "--diarize",
+        action="store_true",
+        help="Включить диаризацию (разделение на спикеров), если поддерживается.",
+    )
+    p.add_argument(
+        "--selenium-fallback",
+        action="store_true",
+        help="Если прямое скачивание не удалось — скачать через Chrome (UI).",
+    )
+    p.add_argument(
+        "--audio-file",
+        type=str,
+        default="",
+        help="Путь к локальному mp3/wav. Если указан — скачивание из Bitrix пропускается.",
+    )
     return p
 
 
 def _import_selenium():
     from selenium import webdriver
+    from selenium.common.exceptions import (
+        SessionNotCreatedException,
+        TimeoutException,
+        WebDriverException,
+    )
     from selenium.webdriver.chrome.options import Options
     from selenium.webdriver.common.by import By
-    from selenium.webdriver.support.ui import WebDriverWait
     from selenium.webdriver.support import expected_conditions as EC
-    from selenium.common.exceptions import WebDriverException
-    from selenium.common.exceptions import TimeoutException, SessionNotCreatedException
+    from selenium.webdriver.support.ui import WebDriverWait
 
     return (
         webdriver,
@@ -60,7 +83,7 @@ def _import_selenium():
     )
 
 
-def extract_any_url(obj: Any) -> Optional[str]:
+def extract_any_url(obj: Any) -> str | None:
     if isinstance(obj, str) and obj.startswith("http"):
         return obj
     if isinstance(obj, dict):
@@ -76,7 +99,7 @@ def extract_any_url(obj: Any) -> Optional[str]:
     return None
 
 
-def resolve_any_download_href(html: str, base_url: str) -> Optional[str]:
+def resolve_any_download_href(html: str, base_url: str) -> str | None:
     if not html:
         return None
     patterns = [
@@ -104,15 +127,26 @@ def looks_like_html_prefix(data: bytes) -> bool:
     if not data:
         return True
     head = data.lstrip()[:200].lower()
-    return head.startswith(b"<!doctype") or head.startswith(b"<html") or head.startswith(b"<head") or head.startswith(b"<body")
+    return (
+        head.startswith(b"<!doctype")
+        or head.startswith(b"<html")
+        or head.startswith(b"<head")
+        or head.startswith(b"<body")
+    )
 
 
 async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
     date_to = datetime.now()
     date_from = date_to - timedelta(days=max(1, args.days))
-    flt = {">=CALL_START_DATE": date_from.strftime("%Y-%m-%d"), "<=CALL_START_DATE": date_to.strftime("%Y-%m-%d")}
+    flt = {
+        ">=CALL_START_DATE": date_from.strftime("%Y-%m-%d"),
+        "<=CALL_START_DATE": date_to.strftime("%Y-%m-%d"),
+    }
 
-    data = await api.call("voximplant.statistic.get", {"FILTER": flt, "SORT": "CALL_START_DATE", "ORDER": "DESC", "LIMIT": args.limit})
+    data = await api.call(
+        "voximplant.statistic.get",
+        {"FILTER": flt, "SORT": "CALL_START_DATE", "ORDER": "DESC", "LIMIT": args.limit},
+    )
     calls = data.get("result") or []
     if not calls:
         logger.info("Звонков не найдено. Попробуй увеличить --days.")
@@ -127,14 +161,20 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
     external_link = None
 
     logger.info("\n=== Пример 1 звонка из voximplant.statistic.get ===\n")
-    logger.info(json.dumps(call0, ensure_ascii=False, indent=2) if args.pretty else json.dumps(call0, ensure_ascii=False))
+    logger.info(
+        json.dumps(call0, ensure_ascii=False, indent=2)
+        if args.pretty
+        else json.dumps(call0, ensure_ascii=False)
+    )
 
     logger.info("\n=== Кандидат на ссылку записи (если найден) ===\n")
     if url:
         logger.info(url)
     else:
         logger.info("Не нашёл явную ссылку на запись в этом объекте.")
-        logger.info("\nПробую достать ссылку через Disk/Activity API (RECORD_FILE_ID / CRM_ACTIVITY_ID)...\n")
+        logger.info(
+            "\nПробую достать ссылку через Disk/Activity API (RECORD_FILE_ID / CRM_ACTIVITY_ID)...\n"  # noqa: E501
+        )
 
         if record_file_id:
             try:
@@ -188,7 +228,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
             except Exception:
                 activity_file_url = None
 
-        logger.info("\nЕсли URL всё ещё не найден — просто скинь сюда вывод disk.file.get / crm.activity.get (можно замаскировать телефоны).")
+        logger.info(
+            "\nЕсли URL всё ещё не найден — просто скинь сюда вывод disk.file.get / crm.activity.get (можно замаскировать телефоны)."  # noqa: E501
+        )
 
     if not args.transcribe:
         return
@@ -212,10 +254,14 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
             if not audio_path.exists():
                 logger.error(f"[ERROR] Файл не найден: {audio_path}")
                 return
-            logger.info(f"[OK] Беру локальный файл: {audio_path} ({audio_path.stat().st_size} bytes)")
+            logger.info(
+                f"[OK] Беру локальный файл: {audio_path} ({audio_path.stat().st_size} bytes)"
+            )
         else:
             if not url and not external_link and not detail_url and not activity_file_url:
-                logger.error("\n[ERROR] Не удалось определить URL записи. Сначала добудь URL через Disk/Activity.")
+                logger.error(
+                    "\n[ERROR] Не удалось определить URL записи. Сначала добудь URL через Disk/Activity."  # noqa: E501
+                )
                 return
 
             sess = requests.Session()
@@ -244,7 +290,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                         debug_html = tmp_dir / f"debug_download_{ts}.html"
                         chunk = next(r.iter_content(chunk_size=20000), b"")
                         debug_html.write_bytes(chunk)
-                        logger.warning(f"[WARN] Вместо файла пришёл HTML ({cand}). Сохранил: {debug_html}")
+                        logger.warning(
+                            f"[WARN] Вместо файла пришёл HTML ({cand}). Сохранил: {debug_html}"
+                        )
                         html = chunk.decode("utf-8", errors="ignore")
                         base = "https://online-kassa.bitrix24.ru"
                         direct = resolve_any_download_href(html, base_url=base)
@@ -252,11 +300,23 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                             logger.info(f"[DL] нашёл прямую ссылку Скачать: {direct}")
                             headers2 = dict(headers)
                             headers2["Referer"] = cand
-                            rr = sess.get(direct, timeout=120, allow_redirects=True, stream=True, headers=headers2)
+                            rr = sess.get(
+                                direct,
+                                timeout=120,
+                                allow_redirects=True,
+                                stream=True,
+                                headers=headers2,
+                            )
                             last_status = rr.status_code
                             rr_ctype = (rr.headers.get("Content-Type") or "").lower()
-                            hist = ",".join([str(h.status_code) for h in rr.history]) if rr.history else "-"
-                            logger.info(f"[DL] download-link http={rr.status_code} hist={hist} final={rr.url} content-type={rr_ctype or '<none>'}")
+                            hist = (
+                                ",".join([str(h.status_code) for h in rr.history])
+                                if rr.history
+                                else "-"
+                            )
+                            logger.info(
+                                f"[DL] download-link http={rr.status_code} hist={hist} final={rr.url} content-type={rr_ctype or '<none>'}"  # noqa: E501
+                            )
                             if rr.status_code < 400:
                                 first = next(rr.iter_content(chunk_size=4096), b"")
                                 if looks_like_html_prefix(first):
@@ -275,7 +335,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                                     html2 = bytes(buf).decode("utf-8", errors="ignore")
                                     dbg = tmp_dir / f"debug_download_link_{ts}.html"
                                     dbg.write_text(html2, encoding="utf-8", errors="ignore")
-                                    logger.warning(f"[WARN] download-link тоже вернул HTML. Сохранил: {dbg}")
+                                    logger.warning(
+                                        f"[WARN] download-link тоже вернул HTML. Сохранил: {dbg}"
+                                    )
                                     direct2 = resolve_any_download_href(html2, base_url=base)
                                     if not direct2:
                                         sep2 = "&" if "?" in direct else "?"
@@ -284,17 +346,31 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                                         logger.info(f"[DL] нашёл вторую ссылку Скачать: {direct2}")
                                         headers3 = dict(headers)
                                         headers3["Referer"] = rr.url
-                                        rrr = sess.get(direct2, timeout=120, allow_redirects=True, stream=True, headers=headers3)
+                                        rrr = sess.get(
+                                            direct2,
+                                            timeout=120,
+                                            allow_redirects=True,
+                                            stream=True,
+                                            headers=headers3,
+                                        )
                                         last_status = rrr.status_code
                                         rrr_ctype = (rrr.headers.get("Content-Type") or "").lower()
-                                        hist2 = ",".join([str(h.status_code) for h in rrr.history]) if rrr.history else "-"
-                                        logger.info(f"[DL] download-link2 http={rrr.status_code} hist={hist2} final={rrr.url} content-type={rrr_ctype or '<none>'}")
+                                        hist2 = (
+                                            ",".join([str(h.status_code) for h in rrr.history])
+                                            if rrr.history
+                                            else "-"
+                                        )
+                                        logger.info(
+                                            f"[DL] download-link2 http={rrr.status_code} hist={hist2} final={rrr.url} content-type={rrr_ctype or '<none>'}"  # noqa: E501
+                                        )
                                         if rrr.status_code < 400:
                                             first3 = next(rrr.iter_content(chunk_size=4096), b"")
                                             if not looks_like_html_prefix(first3):
                                                 with audio_path.open("wb") as f:
                                                     f.write(first3)
-                                                    for c3 in rrr.iter_content(chunk_size=1024 * 256):
+                                                    for c3 in rrr.iter_content(
+                                                        chunk_size=1024 * 256
+                                                    ):
                                                         if c3:
                                                             f.write(c3)
                                                 break
@@ -321,7 +397,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
 
             if not audio_path.exists() or audio_path.stat().st_size == 0:
                 logger.error(f"[ERROR] Не удалось скачать запись. Последний HTTP={last_status}.")
-                logger.info("Подсказка: иногда external link надо скачивать с параметром ?download=1.")
+                logger.info(
+                    "Подсказка: иногда external link надо скачивать с параметром ?download=1."
+                )
                 if not args.selenium_fallback:
                     return
 
@@ -364,12 +442,16 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                         )
                         return options
 
-                    base_profile_dir = os.getenv("CHROME_PROFILE_DIR") or str((Path("reports") / "chrome_profile").resolve())
+                    base_profile_dir = os.getenv("CHROME_PROFILE_DIR") or str(
+                        (Path("reports") / "chrome_profile").resolve()
+                    )
                     Path(base_profile_dir).mkdir(parents=True, exist_ok=True)
                     try:
                         return webdriver.Chrome(options=_opts(base_profile_dir))
                     except SessionNotCreatedException:
-                        fallback_dir = str((Path("reports") / f"chrome_profile_tmp_{int(time.time())}").resolve())
+                        fallback_dir = str(
+                            (Path("reports") / f"chrome_profile_tmp_{int(time.time())}").resolve()
+                        )
                         Path(fallback_dir).mkdir(parents=True, exist_ok=True)
                         return webdriver.Chrome(options=_opts(fallback_dir))
 
@@ -392,7 +474,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                         targets.append(str(activity_file_url))
 
                     if not targets:
-                        logger.error("[ERROR] Нет ссылки для открытия в браузере (external_link/detail_url).")
+                        logger.error(
+                            "[ERROR] Нет ссылки для открытия в браузере (external_link/detail_url)."
+                        )
                         return
 
                     def try_click_download() -> None:
@@ -403,7 +487,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
                         ]
                         for by, sel in locators:
                             try:
-                                btn = WebDriverWait(driver, 8).until(EC.element_to_be_clickable((by, sel)))
+                                btn = WebDriverWait(driver, 8).until(
+                                    EC.element_to_be_clickable((by, sel))
+                                )
                                 btn.click()
                                 return
                             except TimeoutException:
@@ -419,8 +505,14 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
 
                         start_wait = time.time()
                         while time.time() - start_wait < 60:
-                            files = sorted(dl_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True)
-                            ready = [f for f in files if f.is_file() and not f.name.endswith(".crdownload")]
+                            files = sorted(
+                                dl_dir.glob("*"), key=lambda p: p.stat().st_mtime, reverse=True
+                            )
+                            ready = [
+                                f
+                                for f in files
+                                if f.is_file() and not f.name.endswith(".crdownload")
+                            ]
                             if ready:
                                 audio_path = ready[0]
                                 downloaded = True
@@ -431,11 +523,13 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
 
                     if not downloaded or not audio_path.exists() or audio_path.stat().st_size == 0:
                         logger.info(
-                            "[ERROR] Selenium скачивание не дало файл. Возможные причины: не выполнен логин, нет прав, или сетевой блок.",
+                            "[ERROR] Selenium скачивание не дало файл. Возможные причины: не выполнен логин, нет прав, или сетевой блок.",  # noqa: E501
                             flush=True,
                         )
                         return
-                    logger.info(f"[OK] Selenium скачал: {audio_path} ({audio_path.stat().st_size} bytes)")
+                    logger.info(
+                        f"[OK] Selenium скачал: {audio_path} ({audio_path.stat().st_size} bytes)"
+                    )
                 except WebDriverException as e:
                     logger.error(f"[ERROR] Selenium: {e}")
                     return
@@ -448,7 +542,9 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
         if not args.audio_file:
             logger.info(f"[OK] Запись скачана: {audio_path} ({audio_path.stat().st_size} bytes)")
 
-        task = asr.start_transcribing(str(audio_path), diarize=bool(args.diarize), remove_timestamps=True)
+        task = asr.start_transcribing(
+            str(audio_path), diarize=bool(args.diarize), remove_timestamps=True
+        )
         logger.info(f"[OK] Задача создана: task_id={task.task_id}")
 
         start = time.time()
@@ -464,11 +560,15 @@ async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
 
             now = time.time()
             if now - last_print >= 2.5:
-                logger.info(f"[ASR] status={status} progress={progress} upload={upload} transcribe={trans} queue={qpos}")
+                logger.info(
+                    f"[ASR] status={status} progress={progress} upload={upload} transcribe={trans} queue={qpos}"  # noqa: E501
+                )
                 last_print = now
 
             st_l = status.lower()
-            if st_l in {"done", "success", "completed", "finished"} or (isinstance(progress, int) and progress >= 100):
+            if st_l in {"done", "success", "completed", "finished"} or (
+                isinstance(progress, int) and progress >= 100
+            ):
                 break
             if st_l in {"error", "failed"}:
                 raise BitNewtonError(f"ASR task failed: {err or st}")

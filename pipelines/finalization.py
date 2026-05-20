@@ -4,16 +4,22 @@ import json
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from bitrix.api import Bitrix24API
+from logging_setup import get_logger
 from pipelines.calls import user_name_map
 from pipelines.cleanup import cleanup_old_chrome_tmp_profiles
 from pipelines.deals import deal_id_from_report_row
 from pipelines.evaluation import refresh_crm_scores_after_stage_metrics
 from pipelines.lost_deals import build_lost_deals_analysis
 from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
-from pipelines.reporting import build_manager_summary, flatten_results, prepare_report_rows, publish_latest_report
+from pipelines.reporting import (
+    build_manager_summary,
+    flatten_results,
+    prepare_report_rows,
+    publish_latest_report,
+)
 from pipelines.retry import merge_retry_results
 from pipelines.stage_history import (
     attach_stage_history_metrics,
@@ -21,7 +27,6 @@ from pipelines.stage_history import (
     fetch_stage_name_map,
     stage_entity_id_from_stage,
 )
-from logging_setup import get_logger
 
 logger = get_logger(__name__)
 
@@ -30,12 +35,14 @@ logger = get_logger(__name__)
 class SyncReportOutput:
     json_out: Path
     xlsx_out: Path
-    final_results: List[Dict[str, Any]]
-    stage_map: Dict[str, str]
+    final_results: list[dict[str, Any]]
+    stage_map: dict[str, str]
 
 
-async def enrich_manager_names(api: Bitrix24API, results: List[Dict[str, Any]]) -> None:
-    manager_ids = [int(row["manager_id"]) for row in results if isinstance(row.get("manager_id"), int)]
+async def enrich_manager_names(api: Bitrix24API, results: list[dict[str, Any]]) -> None:
+    manager_ids = [
+        int(row["manager_id"]) for row in results if isinstance(row.get("manager_id"), int)
+    ]
     names = await user_name_map(api, manager_ids) if manager_ids else {}
     for row in results:
         manager_id = row.get("manager_id")
@@ -47,15 +54,19 @@ async def enrich_manager_names(api: Bitrix24API, results: List[Dict[str, Any]]) 
 
 async def load_stage_context(
     api: Bitrix24API,
-    results: List[Dict[str, Any]],
+    results: list[dict[str, Any]],
     vibe: Any = None,
     args: Any = None,
-) -> tuple[Dict[str, str], Dict[str, List[Dict[str, Any]]]]:
+) -> tuple[dict[str, str], dict[str, list[dict[str, Any]]]]:
     stage_ids_for_map = [str(row.get("stage_id") or "") for row in results]
-    stage_history_by_deal: Dict[str, List[Dict[str, Any]]] = {}
+    stage_history_by_deal: dict[str, list[dict[str, Any]]] = {}
     try:
         unique_deal_ids = sorted(
-            {str(deal_id_from_report_row(row) or "") for row in results if deal_id_from_report_row(row)}
+            {
+                str(deal_id_from_report_row(row) or "")
+                for row in results
+                if deal_id_from_report_row(row)
+            }
         )
         if unique_deal_ids:
             logger.info("[STAGE] Загружаю историю перемещений сделок по стадиям")
@@ -64,23 +75,31 @@ async def load_stage_context(
                     stage_history_by_deal = vibe.fetch_stage_history(unique_deal_ids)
                     logger.info("[VIBECODE] История стадий загружена через VibeCode")
                 except Exception as e:
-                    logger.warning(f"[WARN] VibeCode stage-history не сработал, fallback на Bitrix REST: {e}")
+                    logger.warning(
+                        f"[WARN] VibeCode stage-history не сработал, fallback на Bitrix REST: {e}"
+                    )
                     stage_history_by_deal = await fetch_stage_history_by_deals(api, unique_deal_ids)
             else:
                 stage_history_by_deal = await fetch_stage_history_by_deals(api, unique_deal_ids)
             for items in stage_history_by_deal.values():
-                stage_ids_for_map.extend(str(item.get("STAGE_ID") or "") for item in items if isinstance(item, dict))
+                stage_ids_for_map.extend(
+                    str(item.get("STAGE_ID") or "") for item in items if isinstance(item, dict)
+                )
     except Exception as e:
         logger.warning(f"[WARN] Не удалось загрузить историю стадий: {e}")
 
     stage_map = None
     if vibe is not None and bool(getattr(args, "vibecode_read", True)):
         try:
-            entities = sorted({stage_entity_id_from_stage(stage_id) for stage_id in stage_ids_for_map if stage_id})
+            entities = sorted(
+                {stage_entity_id_from_stage(stage_id) for stage_id in stage_ids_for_map if stage_id}
+            )
             stage_map = (await fetch_stage_name_map(api, [])) | vibe.fetch_stage_name_map(entities)
             logger.info("[VIBECODE] Названия стадий загружены через VibeCode")
         except Exception as e:
-            logger.warning(f"[WARN] VibeCode statuses/search не сработал, fallback на Bitrix REST: {e}")
+            logger.warning(
+                f"[WARN] VibeCode statuses/search не сработал, fallback на Bitrix REST: {e}"
+            )
     if stage_map is None:
         stage_map = await fetch_stage_name_map(api, stage_ids_for_map)
     return stage_map, stage_history_by_deal
@@ -88,12 +107,12 @@ async def load_stage_context(
 
 async def apply_stage_context(
     api: Bitrix24API,
-    results: List[Dict[str, Any]],
-    kpi: Dict[str, Any],
-    kpi_cmp: Optional[Dict[str, Any]],
+    results: list[dict[str, Any]],
+    kpi: dict[str, Any],
+    kpi_cmp: dict[str, Any] | None,
     vibe: Any = None,
     args: Any = None,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     stage_map, stage_history_by_deal = await load_stage_context(api, results, vibe=vibe, args=args)
     if stage_history_by_deal:
         attach_stage_history_metrics(results, stage_history_by_deal, stage_map=stage_map)
@@ -102,9 +121,9 @@ async def apply_stage_context(
 
 
 def apply_retry_merge(
-    results: List[Dict[str, Any]],
-    retry_scope: Optional[Dict[str, Any]],
-) -> List[Dict[str, Any]]:
+    results: list[dict[str, Any]],
+    retry_scope: dict[str, Any] | None,
+) -> list[dict[str, Any]]:
     if retry_scope is None:
         return results
 
@@ -118,14 +137,16 @@ def apply_retry_merge(
 
 
 def write_sync_report(
-    final_results: List[Dict[str, Any]],
-    stage_map: Dict[str, str],
-    kpi_cmp: Optional[Dict[str, Any]],
-    lost_deals_analysis: Optional[Dict[str, List[Dict[str, Any]]]] = None,
+    final_results: list[dict[str, Any]],
+    stage_map: dict[str, str],
+    kpi_cmp: dict[str, Any] | None,
+    lost_deals_analysis: dict[str, list[dict[str, Any]]] | None = None,
 ) -> tuple[Path, Path]:
     manager_summary = build_manager_summary(final_results)
     manager_summary_cmp = (
-        build_manager_summary(final_results, score_key="overall_score_cmp") if kpi_cmp is not None else None
+        build_manager_summary(final_results, score_key="overall_score_cmp")
+        if kpi_cmp is not None
+        else None
     )
 
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -144,7 +165,9 @@ def write_sync_report(
     return json_out, xlsx_out
 
 
-def print_kpi_comparison(final_results: List[Dict[str, Any]], kpi_cmp: Optional[Dict[str, Any]]) -> None:
+def print_kpi_comparison(
+    final_results: list[dict[str, Any]], kpi_cmp: dict[str, Any] | None
+) -> None:
     if kpi_cmp is None:
         return
     ranked = sorted(
@@ -167,7 +190,9 @@ def print_kpi_comparison(final_results: List[Dict[str, Any]], kpi_cmp: Optional[
 def cleanup_chrome_tmp_if_needed(args: Any) -> None:
     if int(args.cleanup_chrome_tmp_days or 0) <= 0:
         return
-    removed = cleanup_old_chrome_tmp_profiles(REPORTS_DIR, keep_days=int(args.cleanup_chrome_tmp_days))
+    removed = cleanup_old_chrome_tmp_profiles(
+        REPORTS_DIR, keep_days=int(args.cleanup_chrome_tmp_days)
+    )
     if removed:
         logger.info(f"[OK] Удалено старых chrome_profile_tmp_*: {removed}")
 
@@ -176,10 +201,10 @@ async def finalize_sync_report(
     *,
     api: Bitrix24API,
     args: Any,
-    results: List[Dict[str, Any]],
-    kpi: Dict[str, Any],
-    kpi_cmp: Optional[Dict[str, Any]],
-    retry_scope: Optional[Dict[str, Any]],
+    results: list[dict[str, Any]],
+    kpi: dict[str, Any],
+    kpi_cmp: dict[str, Any] | None,
+    retry_scope: dict[str, Any] | None,
     ok: int,
     err: int,
     vibe: Any = None,

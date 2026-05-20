@@ -1,7 +1,6 @@
-﻿from __future__ import annotations
-from typing import Dict
+from __future__ import annotations
 
-RU_COLUMNS: Dict[str, str] = {
+RU_COLUMNS: dict[str, str] = {
     "deal_id": "ID сделки",
     "deal_url": "Ссылка на сделку",
     "stage_id": "Стадия",

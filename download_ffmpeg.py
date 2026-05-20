@@ -1,16 +1,18 @@
-
-from logging_setup import get_logger
-
-logger = get_logger(__name__)
 """
 Скачивание и установка ffmpeg автоматически
 """
 
-import requests
-import zipfile
 import os
 import shutil
+import zipfile
 from pathlib import Path
+
+import requests
+
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 
 def download_ffmpeg():
@@ -33,10 +35,10 @@ def download_ffmpeg():
         response = requests.get(url, stream=True, timeout=300)
         response.raise_for_status()
 
-        total_size = int(response.headers.get('content-length', 0))
+        total_size = int(response.headers.get("content-length", 0))
         logger.info(f"Razmer: {total_size / 1024 / 1024:.1f} MB")
 
-        with open(zip_file, 'wb') as f:
+        with open(zip_file, "wb") as f:
             downloaded = 0
             for chunk in response.iter_content(chunk_size=8192):
                 if chunk:
@@ -44,13 +46,13 @@ def download_ffmpeg():
                     downloaded += len(chunk)
                     if total_size > 0:
                         percent = (downloaded / total_size) * 100
-                        logger.info(f"\rProgress: {percent:.1f}%", end='')
+                        logger.info(f"\rProgress: {percent:.1f}%", end="")
 
         logger.info("\n[OK] Skachano!")
 
         # Распаковываем
         logger.info("\nRaspakuem...")
-        with zipfile.ZipFile(zip_file, 'r') as zip_ref:
+        with zipfile.ZipFile(zip_file, "r") as zip_ref:
             zip_ref.extractall(".")
 
         # Находим папку с ffmpeg
@@ -92,5 +94,5 @@ def download_ffmpeg():
         return False
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     download_ffmpeg()

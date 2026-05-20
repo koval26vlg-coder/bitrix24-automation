@@ -1,7 +1,8 @@
-﻿from __future__ import annotations
+from __future__ import annotations
+
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from pipelines.kpi import FIRST_RESPONSE_SLA_HOURS
 from pipelines.scoring import (
@@ -17,8 +18,10 @@ from pipelines.scoring import (
 )
 
 
-def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
-    weights: Dict[str, Any] = kpi.get("deal_quality_weights", {})
+def compute_deal_quality(
+    deal: dict[str, Any], comments: list[str], kpi: dict[str, Any]
+) -> dict[str, Any]:
+    weights: dict[str, Any] = kpi.get("deal_quality_weights", {})
     has_contact = bool(deal.get("CONTACT_ID") or deal.get("COMPANY_ID"))
     has_amount = bool(str(deal.get("OPPORTUNITY") or "").strip() not in {"", "0", "0.00"})
     has_title = bool(str(deal.get("TITLE") or "").strip())
@@ -49,25 +52,36 @@ def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[st
     }
 
 
-def crm_call_alignment(deal: Dict[str, Any], text: str, comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
-    weights: Dict[str, Any] = kpi.get("alignment_weights", {})
+def crm_call_alignment(
+    deal: dict[str, Any], text: str, comments: list[str], kpi: dict[str, Any]
+) -> dict[str, Any]:
+    weights: dict[str, Any] = kpi.get("alignment_weights", {})
     transcript = (text or "").lower()
-    title_words = [word for word in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", str(deal.get("TITLE") or "").lower())[:6]]
+    title_words = [
+        word
+        for word in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", str(deal.get("TITLE") or "").lower())[:6]
+    ]
     title_hits = sum(1 for word in title_words if word in transcript)
     amount = str(deal.get("OPPORTUNITY") or "").split(".")[0]
     amount_mentioned = bool(amount and amount != "0" and amount in transcript)
     comments_text = " ".join(comments).lower()
-    next_step_re = r"\b(перезвон\w*|встреч\w*|созвон\w*|отправ\w*|вышл\w*|уточн\w*|согласу\w*|кп|договор\w*)\b"
-    next_step_synced = bool(re.search(next_step_re, transcript) and re.search(next_step_re, comments_text))
+    next_step_re = (
+        r"\b(перезвон\w*|встреч\w*|созвон\w*|отправ\w*|вышл\w*|уточн\w*|согласу\w*|кп|договор\w*)\b"
+    )
+    next_step_synced = bool(
+        re.search(next_step_re, transcript) and re.search(next_step_re, comments_text)
+    )
     amount_weight = int(weights.get("amount_mentioned", 30))
     next_step_weight = int(weights.get("next_step_synced", 40))
-    raw_score = (amount_weight if amount_mentioned else 0) + (next_step_weight if next_step_synced else 0)
+    raw_score = (amount_weight if amount_mentioned else 0) + (
+        next_step_weight if next_step_synced else 0
+    )
     total_weight = max(1, amount_weight + next_step_weight)
     align_score = round(raw_score * 100.0 / total_weight, 2)
     next_step_details = (
         "Да: следующий шаг звучит в разговоре и зафиксирован в комментариях/таймлайне CRM."
         if next_step_synced
-        else "Нет: следующий шаг либо не прозвучал в разговоре, либо не зафиксирован в CRM. Это мешает контролировать дальнейшее действие по клиенту."
+        else "Нет: следующий шаг либо не прозвучал в разговоре, либо не зафиксирован в CRM. Это мешает контролировать дальнейшее действие по клиенту."  # noqa: E501
     )
     amount_text = "да" if amount_mentioned else "нет"
     next_step_text = "да" if next_step_synced else "нет"
@@ -87,11 +101,11 @@ def crm_call_alignment(deal: Dict[str, Any], text: str, comments: List[str], kpi
     }
 
 
-def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str, Any]:
+def analyze_transcript_improvements(text: str, row: dict[str, Any]) -> dict[str, Any]:
     raw = text or ""
     lower = raw.lower()
-    objections: List[Dict[str, Any]] = []
-    seen: set[Tuple[str, str]] = set()
+    objections: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
 
     for label, pattern, suggestion in OBJECTION_RULES:
         for match in re.finditer(pattern, lower, flags=re.IGNORECASE):
@@ -112,21 +126,29 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
                 }
             )
 
-    improvement_items: List[str] = []
+    improvement_items: list[str] = []
     if not row.get("has_greeting"):
         improvement_items.append("Нет явного приветствия и представления.")
     if not row.get("has_needs_discovery"):
-        improvement_items.append("Слабо выявлены потребности: не видно уточняющих вопросов о задаче клиента.")
+        improvement_items.append(
+            "Слабо выявлены потребности: не видно уточняющих вопросов о задаче клиента."
+        )
     if not row.get("has_next_step_phrase"):
         improvement_items.append("Не зафиксирован конкретный следующий шаг.")
 
     unhandled = [objection for objection in objections if not objection["handled"]]
     if unhandled:
-        improvement_items.append("Есть неотработанные возражения: " + "; ".join(o["objection_type"] for o in unhandled[:5]) + ".")
+        improvement_items.append(
+            "Есть неотработанные возражения: "
+            + "; ".join(o["objection_type"] for o in unhandled[:5])
+            + "."
+        )
     elif objections:
-        improvement_items.append("Возражения найдены и в целом отработаны, но стоит фиксировать следующий шаг после ответа.")
+        improvement_items.append(
+            "Возражения найдены и в целом отработаны, но стоит фиксировать следующий шаг после ответа."  # noqa: E501
+        )
 
-    marked_lines: List[str] = []
+    marked_lines: list[str] = []
     for objection in objections:
         status = objection["objection_status"]
         marker = "ТРЕБУЕТ ОТРАБОТКИ" if status == "не отработано" else "ОТРАБОТАНО"
@@ -137,7 +159,9 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
         )
 
     if not marked_lines and improvement_items:
-        marked_lines.append("[МОМЕНТЫ ДЛЯ УЛУЧШЕНИЯ]\n" + "\n".join(f"- {item}" for item in improvement_items))
+        marked_lines.append(
+            "[МОМЕНТЫ ДЛЯ УЛУЧШЕНИЯ]\n" + "\n".join(f"- {item}" for item in improvement_items)
+        )
 
     transcript_marked = raw
     if marked_lines:
@@ -145,14 +169,17 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
 
     recommendations = [objection["objection_recommendation"] for objection in unhandled]
     if not recommendations and objections:
-        recommendations = ["После ответа на возражение обязательно закрепить следующий шаг: дата, действие, ответственный."]
+        recommendations = [
+            "После ответа на возражение обязательно закрепить следующий шаг: дата, действие, ответственный."  # noqa: E501
+        ]
 
     return {
         "objections_count": len(objections),
         "unhandled_objections_count": len(unhandled),
         "objections_handled": bool(objections and not unhandled),
         "objections_found": "\n".join(
-            f"{o['objection_type']}: {o['objection_fragment']} ({o['objection_status']})" for o in objections
+            f"{o['objection_type']}: {o['objection_fragment']} ({o['objection_status']})"
+            for o in objections
         ),
         "unhandled_objections": "\n".join(
             f"{o['objection_type']}: {o['objection_fragment']}" for o in unhandled
@@ -164,14 +191,24 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
     }
 
 
-async def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str], text: str, kpi: Dict[str, Any], suffix: str = "", codex_evaluator: Any = None) -> None:
+async def apply_scores(
+    row: dict[str, Any],
+    deal: dict[str, Any],
+    comments: list[str],
+    text: str,
+    kpi: dict[str, Any],
+    suffix: str = "",
+    codex_evaluator: Any = None,
+) -> None:
     first_h = row.get("first_response_hours")
     first_m = row.get("first_response_minutes")
     sla_cfg = kpi.get("sla", {})
     first_response_sla = float(sla_cfg.get("first_response_hours", FIRST_RESPONSE_SLA_HOURS))
     if first_h is None and first_m is not None:
         first_h = float(first_m) / 60.0
-    row[f"first_response_sla_ok{suffix}"] = first_h is not None and float(first_h) <= first_response_sla
+    row[f"first_response_sla_ok{suffix}"] = (
+        first_h is not None and float(first_h) <= first_response_sla
+    )
 
     deal_q = compute_deal_quality(deal, comments, kpi)
     call_q = evaluate_call_text(text, kpi)
@@ -198,21 +235,27 @@ async def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List
 
 
 async def finalize_transcript_analysis(
-    row: Dict[str, Any],
-    deal: Dict[str, Any],
-    comments: List[str],
+    row: dict[str, Any],
+    deal: dict[str, Any],
+    comments: list[str],
     bitnewton_text: str,
     bitrix_text: str,
-    kpi: Dict[str, Any],
-    kpi_cmp: Optional[Dict[str, Any]],
+    kpi: dict[str, Any],
+    kpi_cmp: dict[str, Any] | None,
     codex_evaluator: Any = None,
 ) -> None:
     analysis_text = merged_transcript_text(bitnewton_text or "", bitrix_text or "")
     row["combined_transcript_text"] = analysis_text
-    await apply_scores(row, deal, comments, analysis_text, kpi, suffix="", codex_evaluator=codex_evaluator)
+    await apply_scores(
+        row, deal, comments, analysis_text, kpi, suffix="", codex_evaluator=codex_evaluator
+    )
     if kpi_cmp is not None:
-        await apply_scores(row, deal, comments, analysis_text, kpi_cmp, suffix="_cmp", codex_evaluator=None)
-        row["overall_score_delta"] = round(float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2)
+        await apply_scores(
+            row, deal, comments, analysis_text, kpi_cmp, suffix="_cmp", codex_evaluator=None
+        )
+        row["overall_score_delta"] = round(
+            float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2
+        )
     row.update(analyze_transcript_improvements(analysis_text, row))
     call_conclusion, call_recommendations = call_quality_conclusion(row)
     row["call_quality_conclusion"] = call_conclusion
@@ -220,7 +263,9 @@ async def finalize_transcript_analysis(
     row["conversation_meaning"] = conversation_meaning(analysis_text, row)
 
 
-def refresh_crm_scores_after_stage_metrics(rows: List[Dict[str, Any]], kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]] = None) -> None:
+def refresh_crm_scores_after_stage_metrics(
+    rows: list[dict[str, Any]], kpi: dict[str, Any], kpi_cmp: dict[str, Any] | None = None
+) -> None:
     for row in rows:
         crm_q = evaluate_crm_checklist(row, include_stage=True)
         row.update(crm_q)
@@ -229,10 +274,17 @@ def refresh_crm_scores_after_stage_metrics(rows: List[Dict[str, Any]], kpi: Dict
             row["crm_work_score_cmp"] = crm_q.get("crm_work_score")
             row["crm_checklist_percent_cmp"] = crm_q.get("crm_checklist_percent")
             recalculate_overall_score(row, kpi_cmp, suffix="_cmp")
-            row["overall_score_delta"] = round(float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2)
+            row["overall_score_delta"] = round(
+                float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2
+            )
 
 
-async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]] = None, codex_evaluator: Any = None) -> Dict[str, Any]:
+async def recompute_existing_row(
+    row: dict[str, Any],
+    kpi: dict[str, Any],
+    kpi_cmp: dict[str, Any] | None = None,
+    codex_evaluator: Any = None,
+) -> dict[str, Any]:
     recalculated = dict(row)
     recalculated["kpi_profile"] = (kpi.get("profile") or {}).get("name")
     recalculated["kpi_version"] = (kpi.get("profile") or {}).get("version")
@@ -240,7 +292,9 @@ async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_c
         recalculated["kpi_profile_cmp"] = (kpi_cmp.get("profile") or {}).get("name")
         recalculated["kpi_version_cmp"] = (kpi_cmp.get("profile") or {}).get("version")
 
-    text = str(recalculated.get("combined_transcript_text") or recalculated.get("transcript_text") or "").strip()
+    text = str(
+        recalculated.get("combined_transcript_text") or recalculated.get("transcript_text") or ""
+    ).strip()
     if not text and recalculated.get("transcript_path"):
         try:
             path = Path(str(recalculated.get("transcript_path")))
@@ -256,7 +310,9 @@ async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_c
 
     if not analysis_text:
         recalculated["call_quality_score"] = 0.0
-        recalculated["call_quality_details"] = "Качество разговора не рассчитано: нет сохраненной расшифровки."
+        recalculated["call_quality_details"] = (
+            "Качество разговора не рассчитано: нет сохраненной расшифровки."
+        )
         recalculated.update(evaluate_crm_checklist(recalculated, include_stage=True))
         recalculate_overall_score(recalculated, kpi)
         return recalculated
@@ -265,7 +321,9 @@ async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_c
         recalculated[key] = value
 
     if codex_evaluator is not None:
-        codex_res = await codex_evaluator.evaluate_transcript(analysis_text, {"deal_id": recalculated.get("deal_id")})
+        codex_res = await codex_evaluator.evaluate_transcript(
+            analysis_text, {"deal_id": recalculated.get("deal_id")}
+        )
         recalculated.update(codex_res)
 
     recalculated.update(evaluate_crm_checklist(recalculated, include_stage=True))
@@ -278,12 +336,21 @@ async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_c
     recalculated["conversation_meaning"] = conversation_meaning(analysis_text, recalculated)
 
     if kpi_cmp is not None:
-        tmp = await recompute_existing_row({**recalculated, "overall_score": None}, kpi_cmp, None, None)
-        for key in ["call_quality_score", "deal_quality_score", "alignment_score", "crm_work_score", "overall_score"]:
+        tmp = await recompute_existing_row(
+            {**recalculated, "overall_score": None}, kpi_cmp, None, None
+        )
+        for key in [
+            "call_quality_score",
+            "deal_quality_score",
+            "alignment_score",
+            "crm_work_score",
+            "overall_score",
+        ]:
             if key in tmp:
                 recalculated[f"{key}_cmp"] = tmp.get(key)
         recalculated["overall_score_delta"] = round(
-            float(recalculated.get("overall_score_cmp") or 0.0) - float(recalculated.get("overall_score") or 0.0),
+            float(recalculated.get("overall_score_cmp") or 0.0)
+            - float(recalculated.get("overall_score") or 0.0),
             2,
         )
 

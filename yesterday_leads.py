@@ -1,14 +1,15 @@
-
-from logging_setup import get_logger
-
-logger = get_logger(__name__)
 """
 Лиды за вчерашний день
 """
 
 import asyncio
-from bitrix24_api import Bitrix24API
 from datetime import datetime, timedelta
+
+from bitrix24_api import Bitrix24API
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
+
 
 
 async def main() -> None:
@@ -19,24 +20,32 @@ async def main() -> None:
 
         # Вчерашний день
         yesterday = datetime.now() - timedelta(days=1)
-        date_from = yesterday.strftime('%Y-%m-%d')
-        date_to = yesterday.strftime('%Y-%m-%d') + ' 23:59:59'
+        date_from = yesterday.strftime("%Y-%m-%d")
+        date_to = yesterday.strftime("%Y-%m-%d") + " 23:59:59"
 
         logger.info(f"=== LIDY ZA {date_from} ===\n")
 
         # Получаем лиды
-        result = await api.call('crm.lead.list', {
-            'filter': {
-                '>=DATE_CREATE': date_from,
-                '<=DATE_CREATE': date_to
+        result = await api.call(
+            "crm.lead.list",
+            {
+                "filter": {">=DATE_CREATE": date_from, "<=DATE_CREATE": date_to},
+                "select": [
+                    "ID",
+                    "TITLE",
+                    "NAME",
+                    "LAST_NAME",
+                    "STATUS_ID",
+                    "SOURCE_ID",
+                    "DATE_CREATE",
+                    "ASSIGNED_BY_ID",
+                ],
             },
-            'select': ['ID', 'TITLE', 'NAME', 'LAST_NAME', 'STATUS_ID',
-                       'SOURCE_ID', 'DATE_CREATE', 'ASSIGNED_BY_ID']
-        })
+        )
     finally:
         await api.aclose()
 
-    leads = result.get('result', [])
+    leads = result.get("result", [])
 
     logger.info(f"Vsego lidov: {len(leads)}\n")
 
@@ -45,7 +54,7 @@ async def main() -> None:
         for lead in leads:
             name = f"{lead.get('NAME', '')} {lead.get('LAST_NAME', '')}".strip()
             if not name:
-                name = lead.get('TITLE', 'Bez imeni')
+                name = lead.get("TITLE", "Bez imeni")
 
             logger.info(f"  ID: {lead.get('ID')}")
             logger.info(f"    Imya: {name}")

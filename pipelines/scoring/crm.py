@@ -1,7 +1,9 @@
-﻿from __future__ import annotations
-from typing import Any, Dict, List, Tuple
+from __future__ import annotations
 
-def _crm_item(code: str, block: str, criterion: str, score: float, comment: str) -> Dict[str, Any]:
+from typing import Any
+
+
+def _crm_item(code: str, block: str, criterion: str, score: float, comment: str) -> dict[str, Any]:
     score = max(0.0, min(1.0, float(score or 0.0)))
     return {
         "crm_checklist_block_name": block,
@@ -12,7 +14,8 @@ def _crm_item(code: str, block: str, criterion: str, score: float, comment: str)
         "crm_checklist_comment": comment,
     }
 
-def _status_score(status: Any) -> Tuple[float, str]:
+
+def _status_score(status: Any) -> tuple[float, str]:
     text = str(status or "").strip()
     lowered = text.lower()
     if not text:
@@ -23,20 +26,27 @@ def _status_score(status: Any) -> Tuple[float, str]:
         return 0.5, f"Статус: {text}. Сделка приближается к критическому сроку."
     return 1.0, f"Статус: {text}."
 
-def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage: bool = True) -> Dict[str, Any]:
+
+def evaluate_crm_checklist(
+    row: dict[str, Any], suffix: str = "", include_stage: bool = True
+) -> dict[str, Any]:
     def get(key: str) -> Any:
         if suffix and f"{key}{suffix}" in row:
             return row.get(f"{key}{suffix}")
         return row.get(key)
 
-    items: List[Dict[str, Any]] = []
+    items: list[dict[str, Any]] = []
     items.append(
         _crm_item(
             "crm_has_contact",
             "Заполнение сделки",
             "В сделке указан контакт или компания",
             1.0 if get("has_contact") else 0.0,
-            "Контакт/компания есть." if get("has_contact") else "В сделке нет контакта или компании.",
+            (
+                "Контакт/компания есть."
+                if get("has_contact")
+                else "В сделке нет контакта или компании."
+            ),
         )
     )
     items.append(
@@ -45,7 +55,11 @@ def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage:
             "Заполнение сделки",
             "В сделке указана сумма",
             1.0 if get("has_amount") else 0.0,
-            "Сумма заполнена." if get("has_amount") else "Сумма сделки не заполнена или равна нулю.",
+            (
+                "Сумма заполнена."
+                if get("has_amount")
+                else "Сумма сделки не заполнена или равна нулю."
+            ),
         )
     )
     items.append(
@@ -63,7 +77,11 @@ def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage:
             "Заполнение сделки",
             "В CRM есть комментарий или следующий шаг",
             1.0 if get("has_comments") else 0.0,
-            "В таймлайне есть комментарии/следующие действия." if get("has_comments") else "В CRM не найден комментарий или следующий шаг.",
+            (
+                "В таймлайне есть комментарии/следующие действия."
+                if get("has_comments")
+                else "В CRM не найден комментарий или следующий шаг."
+            ),
         )
     )
 
@@ -128,7 +146,11 @@ def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage:
                     "Движение по воронке",
                     "Есть история движения сделки по стадиям",
                     1.0 if history_ok else 0.0,
-                    "История стадий найдена." if history_ok else "История движения по стадиям не найдена.",
+                    (
+                        "История стадий найдена."
+                        if history_ok
+                        else "История движения по стадиям не найдена."
+                    ),
                 )
             )
             score, comment = _status_score(row.get("stage_current_age_status"))
@@ -188,7 +210,7 @@ def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage:
     total_score = round(sum(float(item.get("crm_checklist_score") or 0.0) for item in items), 2)
     total_max = len(items)
     percent = round(total_score * 100.0 / max(1, total_max), 2)
-    blocks: Dict[str, List[Dict[str, Any]]] = {}
+    blocks: dict[str, list[dict[str, Any]]] = {}
     for item in items:
         blocks.setdefault(str(item.get("crm_checklist_block_name") or ""), []).append(item)
     details_parts = []
@@ -208,9 +230,10 @@ def evaluate_crm_checklist(row: Dict[str, Any], suffix: str = "", include_stage:
         "crm_work_score": percent,
     }
 
-def recalculate_overall_score(row: Dict[str, Any], kpi: Dict[str, Any], suffix: str = "") -> None:
-    w: Dict[str, Any] = kpi.get("weights", {})
-    ow: Dict[str, Any] = w.get("overall", {})
+
+def recalculate_overall_score(row: dict[str, Any], kpi: dict[str, Any], suffix: str = "") -> None:
+    w: dict[str, Any] = kpi.get("weights", {})
+    ow: dict[str, Any] = w.get("overall", {})
     call_weight: float = float(ow.get("call_quality", 0.50))
     crm_weight: float = float(ow.get("crm_alignment", 0.50))
     total_weight = call_weight + crm_weight

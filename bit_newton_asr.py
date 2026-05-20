@@ -4,11 +4,9 @@ import os
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 import requests
 from dotenv import load_dotenv
-
 
 load_dotenv(override=True)
 
@@ -72,17 +70,23 @@ class BitNewtonASR:
 
         with p.open("rb") as f:
             files = {"file": (p.name, f)}
-            r = self.session.post(url, headers=headers, params=params, files=files, timeout=self.timeout_sec)
+            r = self.session.post(
+                url, headers=headers, params=params, files=files, timeout=self.timeout_sec
+            )
         if r.status_code >= 400:
             self._raise_for_auth_if_needed(r.status_code, r.text, "ASR start_transcribing")
             raise BitNewtonError(f"ASR start_transcribing HTTP {r.status_code}: {r.text[:500]}")
         data = r.json()
-        return BitNewtonTask(task_id=str(data.get("task_id")), message=str(data.get("message") or ""))
+        return BitNewtonTask(
+            task_id=str(data.get("task_id")), message=str(data.get("message") or "")
+        )
 
     def get_status(self, task_id: str) -> dict:
         url = f"{self.base_url}/get_status"
         headers = {"token": self.token}
-        r = self.session.get(url, headers=headers, params={"task_id": task_id}, timeout=self.timeout_sec)
+        r = self.session.get(
+            url, headers=headers, params={"task_id": task_id}, timeout=self.timeout_sec
+        )
         if r.status_code >= 400:
             self._raise_for_auth_if_needed(r.status_code, r.text, "ASR get_status")
             raise BitNewtonError(f"ASR get_status HTTP {r.status_code}: {r.text[:500]}")
@@ -92,7 +96,7 @@ class BitNewtonASR:
         """
         Быстрая проверка авторизации без отправки аудиофайла.
         Любой ответ кроме 401/403 означает, что токен сервер принял, даже если task_id не существует.
-        """
+        """  # noqa: E501
         url = f"{self.base_url}/get_status"
         headers = {"token": self.token}
         timeout_sec = min(int(self.timeout_sec or 120), 30)
@@ -105,7 +109,7 @@ class BitNewtonASR:
         self._raise_for_auth_if_needed(r.status_code, r.text, "ASR token_check")
         return True
 
-    def get_file(self, task_id: str, file_type: Optional[str] = None) -> bytes:
+    def get_file(self, task_id: str, file_type: str | None = None) -> bytes:
         url = f"{self.base_url}/get_file"
         headers = {"token": self.token}
         params = {"task_id": task_id}
@@ -131,12 +135,16 @@ class BitNewtonASR:
             status = str(st.get("status") or "").lower()
             progress = st.get("progress")
 
-            if status in {"done", "success", "completed", "finished"} or (isinstance(progress, int) and progress >= 100):
+            if status in {"done", "success", "completed", "finished"} or (
+                isinstance(progress, int) and progress >= 100
+            ):
                 break
             if status in {"error", "failed"}:
                 raise BitNewtonError(f"ASR task failed: {st}")
             if time.time() - start > timeout_sec:
-                raise BitNewtonError(f"ASR timeout waiting task {task_id}. last_status={last_status}")
+                raise BitNewtonError(
+                    f"ASR timeout waiting task {task_id}. last_status={last_status}"
+                )
             time.sleep(poll_interval_sec)
 
         # Чаще всего результат — txt. Если сервис отдаёт другой формат, пробуем «как есть».
@@ -147,11 +155,10 @@ class BitNewtonASR:
             return content.decode(errors="replace").strip()
 
 
-def env_bitnewton_asr() -> Optional[BitNewtonASR]:
+def env_bitnewton_asr() -> BitNewtonASR | None:
     base_url = os.getenv("BITNEWTON_ASR_URL", "https://bit-asr.1bitai.ru").strip()
     token = os.getenv("BITNEWTON_TOKEN", "").strip()
     if not token:
         return None
     timeout_sec = int(os.getenv("BITNEWTON_HTTP_TIMEOUT_SEC", "300") or 300)
     return BitNewtonASR(base_url=base_url, token=token, timeout_sec=timeout_sec)
-

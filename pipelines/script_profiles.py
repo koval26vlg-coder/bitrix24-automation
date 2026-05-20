@@ -2,11 +2,10 @@ from __future__ import annotations
 
 from typing import Any
 
-
 SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
     "online_kassa_sales": {
         "name": "Продажи онлайн-касс",
-        "purpose": "Полный продажный разговор по онлайн-кассам, ККТ, ОФД, маркировке и сопровождению.",
+        "purpose": "Полный продажный разговор по онлайн-кассам, ККТ, ОФД, маркировке и сопровождению.",  # noqa: E501
         "trigger_patterns": [
             r"\b(касс\w*|ккт|фискаль\w*|офд|маркировк\w*|эквайринг|онлайн-?касс\w*)\b",
         ],
@@ -25,7 +24,7 @@ SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
     },
     "first_contact": {
         "name": "Первичный звонок",
-        "purpose": "Первый контакт: быстро объяснить причину звонка, выявить задачу и договориться о следующем шаге.",
+        "purpose": "Первый контакт: быстро объяснить причину звонка, выявить задачу и договориться о следующем шаге.",  # noqa: E501
         "trigger_patterns": [
             r"\b(заявк\w*|первичн\w*|первый раз|вы оставляли|интересовал\w*)\b",
         ],
@@ -43,9 +42,9 @@ SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
     },
     "follow_up": {
         "name": "Дожим / повторный контакт",
-        "purpose": "Повторный контакт после КП, счёта или паузы клиента: понять барьер и довести до решения.",
+        "purpose": "Повторный контакт после КП, счёта или паузы клиента: понять барьер и довести до решения.",  # noqa: E501
         "trigger_patterns": [
-            r"\b(повторн\w*|возвраща\w*|ранее|прошлый раз|обсуждали|отправлял\w*|высылал\w*|получили|посмотрели|решение приняли)\b",
+            r"\b(повторн\w*|возвраща\w*|ранее|прошлый раз|обсуждали|отправлял\w*|высылал\w*|получили|посмотрели|решение приняли)\b",  # noqa: E501
             r"\b(подума\w*|посмотрел\w*|обсудил\w*|согласовал\w*)\b",
         ],
         "steps": [
@@ -54,7 +53,12 @@ SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
             {"code": "followup_decision_status", "weight": 1.4, "critical": True},
             {"code": "followup_blocker", "weight": 1.4, "critical": True},
             {"code": "presentation_benefits", "weight": 1.0, "critical": False},
-            {"code": "objection_true_reason", "weight": 1.2, "critical": True, "when_objection": True},
+            {
+                "code": "objection_true_reason",
+                "weight": 1.2,
+                "critical": True,
+                "when_objection": True,
+            },
             {"code": "objection_solution", "weight": 1.5, "critical": True, "when_objection": True},
             {"code": "closing_next_step", "weight": 1.5, "critical": True},
             {"code": "closing_next_comm_time", "weight": 1.3, "critical": True},
@@ -62,9 +66,9 @@ SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
     },
     "objection_management": {
         "name": "Работа с отказом / Управление возражениями",
-        "purpose": "Разговор с отказом, сомнением или ценовым возражением: понять причину, отработать и закрепить действие.",
+        "purpose": "Разговор с отказом, сомнением или ценовым возражением: понять причину, отработать и закрепить действие.",  # noqa: E501
         "trigger_patterns": [
-            r"\b(дорог\w*|не интересно|неинтересно|не надо|не нужно|не подходит|подума\w*|нет бюджета|сомнева\w*|отказ\w*)\b",
+            r"\b(дорог\w*|не интересно|неинтересно|не надо|не нужно|не подходит|подума\w*|нет бюджета|сомнева\w*|отказ\w*)\b",  # noqa: E501
         ],
         "steps": [
             {"code": "objection_calm", "weight": 1.1, "critical": True},
@@ -80,7 +84,7 @@ SCRIPT_PROFILES: dict[str, dict[str, Any]] = {
     },
     "communication_etiquette": {
         "name": "Этикет общения",
-        "purpose": "Культура делового разговора: вежливость, ясность, уважение к времени клиента и уверенность речи.",
+        "purpose": "Культура делового разговора: вежливость, ясность, уважение к времени клиента и уверенность речи.",  # noqa: E501
         "trigger_patterns": [],
         "steps": [
             {"code": "contact_greeting", "weight": 1.0, "critical": True},

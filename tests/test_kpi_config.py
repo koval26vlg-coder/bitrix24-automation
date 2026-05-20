@@ -22,7 +22,9 @@ def test_custom_kpi_is_merged_but_overall_formula_is_enforced(tmp_path):
         json.dumps(
             {
                 "profile": {"name": "custom"},
-                "weights": {"overall": {"call_quality": 0.2, "discipline": 0.7, "crm_alignment": 0.1}},
+                "weights": {
+                    "overall": {"call_quality": 0.2, "discipline": 0.7, "crm_alignment": 0.1}
+                },
                 "patterns": {"next_step": ["следующий шаг"]},
             },
             ensure_ascii=False,
@@ -44,7 +46,9 @@ def test_invalid_kpi_patterns_are_rejected():
             {
                 "profile": {"name": "bad"},
                 "sla": {"first_response_hours": 0.5, "max_gap_between_calls_hours": 72},
-                "weights": {"overall": {"call_quality": 0.5, "discipline": 0.0, "crm_alignment": 0.5}},
+                "weights": {
+                    "overall": {"call_quality": 0.5, "discipline": 0.0, "crm_alignment": 0.5}
+                },
                 "patterns": {"next_step": "not a list"},
             }
         )

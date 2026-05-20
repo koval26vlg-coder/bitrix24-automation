@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
 
 
 def cleanup_old_chrome_tmp_profiles(base_dir: Path, keep_days: int = 7) -> int:
@@ -36,7 +35,9 @@ def cleanup_old_chrome_tmp_profiles(base_dir: Path, keep_days: int = 7) -> int:
         return 0
 
 
-def cleanup_old_outputs(base_dir: Path, keep_days: int = 30, extra_audio_dirs: Optional[List[Path]] = None) -> Dict[str, int]:
+def cleanup_old_outputs(
+    base_dir: Path, keep_days: int = 30, extra_audio_dirs: list[Path] | None = None
+) -> dict[str, int]:
     counts = {"reports": 0, "audio": 0, "transcripts": 0, "total": 0}
     try:
         if keep_days <= 0:
@@ -60,7 +61,7 @@ def cleanup_old_outputs(base_dir: Path, keep_days: int = 30, extra_audio_dirs: O
             for path in base_dir.glob(pattern):
                 remove_file(path, "reports")
 
-        cleanup_dirs: List[Tuple[Path, str]] = [
+        cleanup_dirs: list[tuple[Path, str]] = [
             (base_dir / "audio", "audio"),
             (base_dir / "audio_ui", "audio"),
             (base_dir / "transcripts", "transcripts"),

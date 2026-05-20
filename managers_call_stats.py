@@ -1,15 +1,17 @@
-﻿import asyncio
-from logging_setup import get_logger
-
-logger = get_logger(__name__)
 """
 Статистика звонков менеджеров с анализом эффективности
 """
 
-from bitrix24_api import Bitrix24API
+import asyncio
 from datetime import datetime, timedelta
+
 import pandas as pd
+
 import config
+from bitrix24_api import Bitrix24API
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 class ManagersCallStats:
@@ -35,11 +37,11 @@ class ManagersCallStats:
         """Получить статистику звонков за период"""
         date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        # Получаем все звонки (voximplant.statistic.get может иметь много данных, 
+        # Получаем все звонки (voximplant.statistic.get может иметь много данных,
         # но в оригинале не было get_all, используем call)
-        result = await self.api.call("voximplant.statistic.get", {
-            "FILTER": {">=CALL_START_DATE": date_from}
-        })
+        result = await self.api.call(
+            "voximplant.statistic.get", {"FILTER": {">=CALL_START_DATE": date_from}}
+        )
 
         calls = result.get("result", [])
         return calls
@@ -48,13 +50,21 @@ class ManagersCallStats:
         """Получить статистику сделок за период"""
         date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        result = await self.api.call("crm.deal.list", {
-            "filter": {">=DATE_CREATE": date_from},
-            "select": [
-                "ID", "TITLE", "STAGE_ID", "ASSIGNED_BY_ID",
-                "OPPORTUNITY", "DATE_CREATE", "CLOSEDATE"
-            ],
-        })
+        result = await self.api.call(
+            "crm.deal.list",
+            {
+                "filter": {">=DATE_CREATE": date_from},
+                "select": [
+                    "ID",
+                    "TITLE",
+                    "STAGE_ID",
+                    "ASSIGNED_BY_ID",
+                    "OPPORTUNITY",
+                    "DATE_CREATE",
+                    "CLOSEDATE",
+                ],
+            },
+        )
 
         deals = result.get("result", [])
         return deals
@@ -131,7 +141,9 @@ class ManagersCallStats:
 
             if "total_deals" in df.columns:
                 df["avg_deal_sum"] = (df["deals_sum"] / df["total_deals"]).fillna(0).round(2)
-                df["conversion_rate"] = (df["won_deals"] / df["total_deals"] * 100).fillna(0).round(1)
+                df["conversion_rate"] = (
+                    (df["won_deals"] / df["total_deals"] * 100).fillna(0).round(1)
+                )
             else:
                 df["total_deals"] = 0
                 df["deals_sum"] = 0

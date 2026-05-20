@@ -1,16 +1,32 @@
-import pytest
 from types import SimpleNamespace
+
+import pytest
+
 from asr.bitnewton import BitNewtonAuthError
 from pipelines.kpi import load_kpi_config
-from pipelines.processing import ProcessingContext, process_call, process_deal, process_deals, process_no_calls_deal
+from pipelines.processing import (
+    ProcessingContext,
+    process_call,
+    process_deal,
+    process_deals,
+    process_no_calls_deal,
+)
+
 
 @pytest.mark.asyncio
 async def test_process_no_calls_deal_builds_scored_error_row():
     kpi = load_kpi_config(None)
     args = SimpleNamespace(domain="example.bitrix24.ru")
     ctx = ProcessingContext(
-        api=object(), asr=object(), args=args, kpi=kpi, kpi_cmp=None,
-        audio_source_index=[], audio_dir=None, ui_audio_dir=None, state_cache={}
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=None,
+        ui_audio_dir=None,
+        state_cache={},
     )
     deal = {"ID": "10", "STAGE_ID": "NEW", "TITLE": "Тестовая сделка", "ASSIGNED_BY_ID": "5"}
 
@@ -47,7 +63,10 @@ async def test_process_call_reuses_cached_transcript(monkeypatch, tmp_path):
     state_cache = {}
     monkeypatch.setattr(
         "pipelines.processing.calls.load_cached_transcript",
-        lambda state, call_id, deal_id, activity_id: (cached_path.read_text(encoding="utf-8"), cached_path),
+        lambda state, call_id, deal_id, activity_id: (
+            cached_path.read_text(encoding="utf-8"),
+            cached_path,
+        ),
     )
     monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
@@ -83,7 +102,9 @@ async def test_process_call_reuses_cached_transcript(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_process_call_no_external_write_skips_cached_force_attach_and_timeline(monkeypatch, tmp_path):
+async def test_process_call_no_external_write_skips_cached_force_attach_and_timeline(
+    monkeypatch, tmp_path
+):
     kpi = load_kpi_config(None)
     cached_path = tmp_path / "cached.txt"
     cached_path.write_text("Добрый день. Уточню задачу и отправлю КП.", encoding="utf-8")
@@ -103,7 +124,10 @@ async def test_process_call_no_external_write_skips_cached_force_attach_and_time
 
     monkeypatch.setattr(
         "pipelines.processing.calls.load_cached_transcript",
-        lambda state, call_id, deal_id, activity_id: (cached_path.read_text(encoding="utf-8"), cached_path),
+        lambda state, call_id, deal_id, activity_id: (
+            cached_path.read_text(encoding="utf-8"),
+            cached_path,
+        ),
     )
     monkeypatch.setattr(
         "pipelines.processing.calls.attach_transcription_to_bitrix",
@@ -164,9 +188,15 @@ async def test_process_call_dry_run_without_cache_skips_download_and_asr(monkeyp
     async def fail_transcribe_with_bitnewton(**_kwargs):
         raise AssertionError("dry-run must not call Bit.Newton")
 
-    monkeypatch.setattr("pipelines.processing.calls.load_cached_transcript", lambda *args: (None, None))
-    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fail_download_audio_for_call)
-    monkeypatch.setattr("pipelines.processing.calls.transcribe_with_bitnewton", fail_transcribe_with_bitnewton)
+    monkeypatch.setattr(
+        "pipelines.processing.calls.load_cached_transcript", lambda *args: (None, None)
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fail_download_audio_for_call
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.transcribe_with_bitnewton", fail_transcribe_with_bitnewton
+    )
 
     ctx = ProcessingContext(
         api=object(),
@@ -226,7 +256,9 @@ async def test_process_call_without_cache_downloads_transcribes_and_attaches(mon
     async def fake_transcribe_with_bitnewton(**kwargs):
         assert kwargs["audio_path"] == audio_path
         assert kwargs["diarize"] is True
-        transcript_path.write_text("Добрый день. Уточню потребность и отправлю КП.", encoding="utf-8")      
+        transcript_path.write_text(
+            "Добрый день. Уточню потребность и отправлю КП.", encoding="utf-8"
+        )
         return transcript_path.read_text(encoding="utf-8"), "task-200", transcript_path
 
     async def fake_attach_transcription_to_bitrix(api, call_id, transcript_text, duration):
@@ -239,21 +271,27 @@ async def test_process_call_without_cache_downloads_transcribes_and_attaches(mon
         )
         return {"ok": True, "call_id": call_id}
 
-    monkeypatch.setattr("pipelines.processing.calls.load_cached_transcript", lambda *args: (None, None))    
-    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call) 
-    monkeypatch.setattr("pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton)
+    monkeypatch.setattr(
+        "pipelines.processing.calls.load_cached_transcript", lambda *args: (None, None)
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton
+    )
     monkeypatch.setattr(
         "pipelines.processing.calls.attach_transcription_to_bitrix",
         fake_attach_transcription_to_bitrix,
     )
-    
+
     async def fake_activity_get(api, activity_id):
         return {
             "ID": activity_id,
             "START_TIME": "2026-05-01T10:00:00+03:00",
             "END_TIME": "2026-05-01T10:03:00+03:00",
         }
-    
+
     monkeypatch.setattr("pipelines.processing.calls.activity_get", fake_activity_get)
     monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
@@ -305,7 +343,9 @@ async def test_process_call_returns_error_row_when_download_fails(monkeypatch, t
     async def fake_download_audio_for_call(**kwargs):
         raise RuntimeError("download failed")
 
-    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call) 
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call
+    )
     monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
 
     ctx = ProcessingContext(
@@ -357,12 +397,18 @@ async def test_process_call_marks_asr_skipped_for_bitnewton_auth_error(monkeypat
     async def fake_download_audio_for_call(**kwargs):
         return audio_path, kwargs["ui_browser_session"]
 
-    monkeypatch.setattr("pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call)
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call
+    )
 
     async def fake_transcribe_with_bitnewton(**kwargs):
-        raise BitNewtonAuthError("ASR start_transcribing: токен Bit.Newton истёк/неверный (HTTP 401).")     
+        raise BitNewtonAuthError(
+            "ASR start_transcribing: токен Bit.Newton истёк/неверный (HTTP 401)."
+        )
 
-    monkeypatch.setattr("pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton)
+    monkeypatch.setattr(
+        "pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton
+    )
 
     ctx = ProcessingContext(
         api=object(),
@@ -398,16 +444,24 @@ async def test_process_call_marks_asr_skipped_for_bitnewton_auth_error(monkeypat
 @pytest.mark.asyncio
 async def test_process_deal_returns_no_call_result(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
-    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)    
-    
-    async def fake_list_activities(api, deal_id): return []
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0
+    )
+
+    async def fake_list_activities(api, deal_id):
+        return []
+
     async def fake_deal_get(api, deal_id):
         return {"ID": deal_id, "STAGE_ID": "NEW", "TITLE": "КП касса", "ASSIGNED_BY_ID": "5"}
-    async def fake_fetch_comments(api, deal_id): return []
 
-    monkeypatch.setattr("pipelines.processing.deals.list_deal_call_activities", fake_list_activities)    
+    async def fake_fetch_comments(api, deal_id):
+        return []
+
+    monkeypatch.setattr(
+        "pipelines.processing.deals.list_deal_call_activities", fake_list_activities
+    )
     monkeypatch.setattr("pipelines.processing.deals.deal_get", fake_deal_get)
-    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)      
+    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)
 
     ctx = ProcessingContext(
         api=object(),
@@ -443,13 +497,19 @@ async def test_process_deal_returns_no_call_result(monkeypatch, tmp_path):
 @pytest.mark.asyncio
 async def test_process_deal_keeps_running_when_deal_is_missing(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
-    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)    
-    
-    async def fake_list_activities(api, deal_id): return []
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0
+    )
+
+    async def fake_list_activities(api, deal_id):
+        return []
+
     async def fake_deal_get(api, deal_id):
         raise Exception("HTTP 400 при вызове crm.deal.get (request_id=None): Not found")
 
-    monkeypatch.setattr("pipelines.processing.deals.list_deal_call_activities", fake_list_activities)    
+    monkeypatch.setattr(
+        "pipelines.processing.deals.list_deal_call_activities", fake_list_activities
+    )
     monkeypatch.setattr("pipelines.processing.deals.deal_get", fake_deal_get)
 
     ctx = ProcessingContext(
@@ -485,14 +545,17 @@ async def test_process_deal_keeps_running_when_deal_is_missing(monkeypatch, tmp_
 @pytest.mark.asyncio
 async def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
-    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0)    
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0
+    )
     processed_activity_ids = []
-    
+
     async def fake_list_activities(api, deal_id):
         return [
             {"ID": "401", "ORIGIN_ID": "CALL-401", "SUBJECT": "failed call"},
             {"ID": "402", "ORIGIN_ID": "CALL-402", "SUBJECT": "ok call"},
         ]
+
     async def fake_deal_get(api, deal_id):
         return {
             "ID": deal_id,
@@ -501,11 +564,15 @@ async def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, 
             "ASSIGNED_BY_ID": "5",
             "DATE_CREATE": "2026-05-01T09:00:00+03:00",
         }
-    async def fake_fetch_comments(api, deal_id): return []
 
-    monkeypatch.setattr("pipelines.processing.deals.list_deal_call_activities", fake_list_activities)    
+    async def fake_fetch_comments(api, deal_id):
+        return []
+
+    monkeypatch.setattr(
+        "pipelines.processing.deals.list_deal_call_activities", fake_list_activities
+    )
     monkeypatch.setattr("pipelines.processing.deals.deal_get", fake_deal_get)
-    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)      
+    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)
 
     async def fake_process_call(**kwargs):
         activity_id = kwargs["activity"]["ID"]
@@ -545,9 +612,14 @@ async def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, 
 @pytest.mark.asyncio
 async def test_process_deal_skips_short_calls_before_processing(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
-    args = SimpleNamespace(domain="example.bitrix24.ru", include_call_center=True, max_calls_per_deal=0, min_call_duration_sec=15)
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru",
+        include_call_center=True,
+        max_calls_per_deal=0,
+        min_call_duration_sec=15,
+    )
     processed_activity_ids = []
-    
+
     async def fake_list_activities(api, deal_id):
         return [
             {
@@ -565,6 +637,7 @@ async def test_process_deal_skips_short_calls_before_processing(monkeypatch, tmp
                 "END_TIME": "2026-05-01T10:01:00+03:00",
             },
         ]
+
     async def fake_deal_get(api, deal_id):
         return {
             "ID": deal_id,
@@ -573,11 +646,15 @@ async def test_process_deal_skips_short_calls_before_processing(monkeypatch, tmp
             "ASSIGNED_BY_ID": "5",
             "DATE_CREATE": "2026-05-01T09:00:00+03:00",
         }
-    async def fake_fetch_comments(api, deal_id): return []
 
-    monkeypatch.setattr("pipelines.processing.deals.list_deal_call_activities", fake_list_activities)    
+    async def fake_fetch_comments(api, deal_id):
+        return []
+
+    monkeypatch.setattr(
+        "pipelines.processing.deals.list_deal_call_activities", fake_list_activities
+    )
     monkeypatch.setattr("pipelines.processing.deals.deal_get", fake_deal_get)
-    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)      
+    monkeypatch.setattr("pipelines.processing.deals.fetch_timeline_comments", fake_fetch_comments)
 
     async def fake_process_call(**kwargs):
         processed_activity_ids.append(kwargs["activity"]["ID"])
@@ -626,6 +703,7 @@ async def test_process_deals_aggregates_rows_and_counters(monkeypatch, tmp_path)
         deal_id = kwargs["deal_id"]
         calls.append((deal_id, kwargs["base_ok"], kwargs["base_err"]))
         from pipelines.processing.context import DealProcessingResult
+
         if deal_id == "10":
             return DealProcessingResult(rows=[{"deal_id": "10"}], ok=1, err=0)
         return DealProcessingResult(rows=[{"deal_id": "20"}], ok=0, err=2)
@@ -648,4 +726,7 @@ async def test_process_deals_aggregates_rows_and_counters(monkeypatch, tmp_path)
     assert result.rows == [{"deal_id": "10"}, {"deal_id": "20"}]
     assert result.ok == 1
     assert result.err == 2
-    assert calls == [("10", 0, 0), ("20", 0, 0)] # parallel execution means base_ok/base_err are same
+    assert calls == [
+        ("10", 0, 0),
+        ("20", 0, 0),
+    ]  # parallel execution means base_ok/base_err are same

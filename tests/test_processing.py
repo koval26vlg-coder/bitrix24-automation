@@ -605,8 +605,8 @@ async def test_process_deal_filters_retry_scope_to_failed_activity(monkeypatch, 
 
     assert result.ok == 1
     assert result.err == 0
-    assert processed_activity_ids == ["401"]
-    assert [row["activity_id"] for row in result.rows] == ["401"]
+    assert processed_activity_ids == [401]
+    assert [row["activity_id"] for row in result.rows] == [401]
 
 
 @pytest.mark.asyncio
@@ -690,7 +690,7 @@ async def test_process_deal_skips_short_calls_before_processing(monkeypatch, tmp
     )
 
     assert result.ok == 1
-    assert processed_activity_ids == ["502"]
+    assert processed_activity_ids == [502]
     assert result.rows[0]["skipped_short_calls"] == 1
 
 

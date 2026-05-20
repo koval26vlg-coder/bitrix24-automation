@@ -8,6 +8,7 @@ from typing import Any
 
 from bitrix.api import Bitrix24API
 from logging_setup import get_logger
+from pipelines.models import BitrixDeal
 from pipelines.stages import safe_int
 from vibecode_api import VibeCodeClient
 

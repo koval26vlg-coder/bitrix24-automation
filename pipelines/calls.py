@@ -5,10 +5,12 @@ from datetime import datetime
 from typing import Any
 
 from bitrix.api import Bitrix24API
+from logging_setup import get_logger
 from pipelines.models import BitrixActivity
 from pipelines.stages import safe_int
 
 FIRST_RESPONSE_SLA_HOURS = 0.5
+logger = get_logger(__name__)
 
 
 async def activity_get(api: Bitrix24API, activity_id: int) -> dict[str, Any]:
@@ -55,7 +57,10 @@ async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> list[dict
             validated = BitrixActivity.model_validate(r).model_dump(by_alias=True, mode="json")
             out.append(validated)
         except Exception as e:
-            logger.error(f"[ERROR] Ошибка валидации активности {r.get('ID')} в сделке {deal_id}: {e}")
+            logger.error(
+                f"[ERROR] Ошибка валидации активности {r.get('ID')} "
+                f"в сделке {deal_id}: {e}"
+            )
     return out
 
 

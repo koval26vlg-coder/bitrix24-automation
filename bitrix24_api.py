@@ -35,13 +35,28 @@ class Bitrix24API:
     async def call(self, method: str, params: dict[str, Any] = None) -> dict[str, Any]:
         """Асинхронный вызов метода Bitrix24 REST API"""
         if self.readonly:
-            # Разрешаем только безопасные методы чтения. 
-            # batch может содержать записи, но мы полагаемся на то, что вызывающий код 
+            # Разрешаем только безопасные методы чтения.
+            # batch может содержать записи, но мы полагаемся на то, что вызывающий код
             # также учитывает флаг dry_run. Централизованно блокируем самые опасные.
             safe_methods = {
-                "profile", "crm.deal.get", "crm.deal.list", "crm.activity.get", 
-                "crm.activity.list", "crm.status.list", "crm.dealcategory.list",
-                "crm.stagehistory.list", "user.get", "disk.file.get", "disk.folder.getchildren"
+                "crm.activity.get",
+                "crm.activity.list",
+                "crm.category.list",
+                "crm.contact.get",
+                "crm.deal.get",
+                "crm.deal.list",
+                "crm.dealcategory.list",
+                "crm.lead.list",
+                "crm.stagehistory.list",
+                "crm.status.list",
+                "crm.timeline.comment.list",
+                "department.get",
+                "disk.file.get",
+                "disk.file.getExternalLink",
+                "disk.folder.getchildren",
+                "profile",
+                "user.get",
+                "voximplant.statistic.get",
             }
             if method not in safe_methods and not method.startswith("batch"):
                 logger.info(f"[DRY-RUN] Пропущен вызов записи Bitrix24: {method}")

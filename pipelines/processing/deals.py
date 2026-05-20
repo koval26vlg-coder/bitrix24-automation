@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from logging_setup import get_logger
 from pipelines.calls import (
     compute_discipline_metrics,
     fetch_timeline_comments,
@@ -12,14 +13,16 @@ from pipelines.calls import (
 )
 from pipelines.deals import deal_get, deal_url_from_id
 from pipelines.evaluation import compute_deal_quality
+from pipelines.models import BitrixActivity, BitrixDeal
 from pipelines.processing.calls import process_call, process_no_calls_deal
 from pipelines.processing.context import (
     DealProcessingResult,
     ProcessingContext,
     ProcessingRunResult,
 )
-from pipelines.models import BitrixActivity, BitrixDeal
 from pipelines.stages import safe_int
+
+logger = get_logger(__name__)
 
 
 def _is_missing_bitrix_deal_error(error: Exception) -> bool:

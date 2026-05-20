@@ -223,14 +223,20 @@ class VibeCodeClient:
     def search_deals(
         self, flt: dict[str, Any], limit: int = 200, sort: dict[str, str] | None = None
     ) -> list[dict[str, Any]]:
-        data = self.post(
-            "/v1/deals/search",
-            {
-                "filter": bitrix_filter_to_vibe(flt),
-                "sort": sort or {"id": "desc"},
-                "limit": max(1, min(5000, int(limit or 200))),
-            },
-        )
+        body = {
+            "filter": bitrix_filter_to_vibe(flt),
+            "sort": sort or {"id": "desc"},
+            "limit": max(1, min(5000, int(limit or 200))),
+        }
+        try:
+            data = self.post("/v1/deals/search", body)
+        except VibeCodeError as e:
+            if "WINDOWED_SEARCH_FAILED" not in str(e):
+                raise
+            fallback_body = dict(body)
+            fallback_body["autoWindow"] = False
+            logger.warning("[VIBECODE] deals/search: повторяю без autoWindow после ошибки окна")
+            data = self.post("/v1/deals/search", fallback_body)
         rows = data.get("data") if isinstance(data, dict) else []
         return [vibe_deal_to_bitrix(row) for row in rows if isinstance(row, dict)]
 

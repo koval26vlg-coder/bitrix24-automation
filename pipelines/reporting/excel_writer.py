@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -80,7 +79,13 @@ def write_excel_report(
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
 
         def _write_sheet(rows: list[dict[str, Any]], columns: list[str], sheet_name: str) -> None:
-            if not rows and sheet_name not in ["Итоги", "Карточки менеджеров", "Сделки", "Сводка менеджеров"]:
+            required_empty_sheets = {
+                "Итоги",
+                "Карточки менеджеров",
+                "Сделки",
+                "Сводка менеджеров",
+            }
+            if not rows and sheet_name not in required_empty_sheets:
                 return
             df = pd.DataFrame(rows)
             # Фильтруем колонки, которые реально есть в данных
@@ -96,14 +101,22 @@ def write_excel_report(
         _write_sheet(ci_objection_rows, CI_OBJECTION_COLUMNS, "Возражения")
         _write_sheet(emotional_risk_rows, EMOTIONAL_RISK_COLUMNS, "Эмоциональные риски")
         _write_sheet(ci_conversion_factor_rows, CONVERSION_FACTOR_COLUMNS, "Факторы конверсии")
-        _write_sheet(ci_manager_recommendation_rows, MANAGER_RECOMMENDATION_COLUMNS, "Рекомендации менеджерам")
+        _write_sheet(
+            ci_manager_recommendation_rows,
+            MANAGER_RECOMMENDATION_COLUMNS,
+            "Рекомендации менеджерам",
+        )
         _write_sheet(script_profile_rows, SCRIPT_PROFILE_COLUMNS, "Соответствие скриптам")
         _write_sheet(script_score_rows, SCRIPT_SCORE_COLUMNS, "Оценка по скрипту")
         _write_sheet(script_gap_rows, SCRIPT_GAP_COLUMNS, "Провалы скрипта")
         _write_sheet(checklist_rows, CHECKLIST_COLUMNS, "Чек-лист звонков")
         _write_sheet(sales_stage_score_rows, SALES_STAGE_SCORE_COLUMNS, "Этапы продаж")
         _write_sheet(manager_stage_rows, MANAGER_STAGE_COLUMNS, "Слабые этапы")
-        _write_sheet(manager_criterion_gap_rows, MANAGER_CRITERION_GAP_COLUMNS, "Проблемные критерии")
+        _write_sheet(
+            manager_criterion_gap_rows,
+            MANAGER_CRITERION_GAP_COLUMNS,
+            "Проблемные критерии",
+        )
         _write_sheet(crm_checklist_rows, CRM_CHECKLIST_COLUMNS, "Чек-лист CRM")
         _write_sheet(manager_crm_gap_rows, MANAGER_CRM_GAP_COLUMNS, "Проблемы CRM")
         _write_sheet(quality_control_rows, QUALITY_CONTROL_COLUMNS, "Контроль качества")

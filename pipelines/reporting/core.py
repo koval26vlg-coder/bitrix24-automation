@@ -5,8 +5,6 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-import pandas as pd
-
 from logging_setup import get_logger
 from pipelines.conversation_intelligence import build_conversation_intelligence
 from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR

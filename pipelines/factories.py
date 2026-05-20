@@ -12,7 +12,6 @@ from pipelines.token_status import (
     record_bitnewton_token_validation,
     update_bitnewton_token_status,
 )
-from vibecode_api import env_vibecode_client
 
 logger = get_logger(__name__)
 
@@ -34,6 +33,7 @@ def create_vibecode_client(args: Any) -> Any:
     readonly = bool(getattr(args, "dry_run", False))
     try:
         from vibecode_api import env_vibecode_client
+
         vibe = env_vibecode_client()
         if vibe:
             vibe.readonly = readonly

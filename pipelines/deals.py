@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 import json
 import re
 from datetime import datetime, timedelta
@@ -8,6 +7,7 @@ from typing import Any, Dict, List, Optional
 
 from bitrix.api import Bitrix24API
 from pipelines.stages import safe_int
+from vibecode_api import VibeCodeClient
 
 from logging_setup import get_logger
 
@@ -19,7 +19,7 @@ def deal_url_from_id(domain: str, deal_id: str) -> str:
     return f"https://{domain}/crm/deal/details/{deal_id}/"
 
 
-def fetch_deals_by_filter(api: Bitrix24API, flt: Dict[str, Any], limit: int = 200) -> List[Dict[str, Any]]:
+async def fetch_deals_by_filter(api: Bitrix24API, flt: Dict[str, Any], limit: int = 200) -> List[Dict[str, Any]]:
     deals: List[Dict[str, Any]] = []
     start: Optional[int] = 0
     page_size = 50
@@ -28,7 +28,7 @@ def fetch_deals_by_filter(api: Bitrix24API, flt: Dict[str, Any], limit: int = 20
         return deals
 
     while start is not None and len(deals) < max_items:
-        res = api.call(
+        res = await api.call(
             "crm.deal.list",
             {
                 "filter": flt,
@@ -58,6 +58,11 @@ def fetch_deals_by_filter(api: Bitrix24API, flt: Dict[str, Any], limit: int = 20
     return deals
 
 
+def fetch_deals_by_filter_vibecode(vibe: VibeCodeClient, flt: Dict[str, Any], limit: int = 200) -> List[Dict[str, Any]]:
+    # vibe пока синхронный
+    return vibe.search_deals(flt, limit=limit, sort={"id": "desc"})
+
+
 def normalize_deal_filter_dates(flt: Dict[str, Any]) -> Dict[str, Any]:
     out = dict(flt or {})
     date_to = out.pop("<=DATE_CREATE", None)
@@ -69,8 +74,9 @@ def normalize_deal_filter_dates(flt: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def deal_get(api: Bitrix24API, deal_id: str) -> Dict[str, Any]:
-    return api.call("crm.deal.get", {"id": int(deal_id)}).get("result", {}) or {}
+async def deal_get(api: Bitrix24API, deal_id: str) -> Dict[str, Any]:
+    res = await api.call("crm.deal.get", {"id": int(deal_id)})
+    return res.get("result", {}) or {}
 
 
 def deal_id_from_report_row(row: Dict[str, Any]) -> Optional[str]:
@@ -84,7 +90,7 @@ def deal_id_from_report_row(row: Dict[str, Any]) -> Optional[str]:
     return match.group(1) if match else None
 
 
-def resolve_deal_ids(args: Any, api: Bitrix24API) -> List[str]:
+async def resolve_deal_ids(args: Any, api: Bitrix24API, vibe: Any = None) -> List[str]:
     if args.mode == "single":
         if args.deal_id:
             deal_id = str(args.deal_id).strip()
@@ -107,6 +113,15 @@ def resolve_deal_ids(args: Any, api: Bitrix24API) -> List[str]:
         raise SystemExit("Для --mode single нужен --deal-id или --deal-url")
 
     flt = normalize_deal_filter_dates(json.loads(Path(args.filter_json).read_text(encoding="utf-8")))
-    deals = fetch_deals_by_filter(api, flt, limit=args.limit)
+    deals: List[Dict[str, Any]]
+    if vibe is not None and bool(getattr(args, "vibecode_read", True)):
+        try:
+            deals = fetch_deals_by_filter_vibecode(vibe, flt, limit=args.limit)
+            logger.info(f"[VIBECODE] Сделки получены через VibeCode: {len(deals)}")
+        except Exception as e:
+            logger.warning(f"[WARN] VibeCode deals/search не сработал, fallback на Bitrix REST: {e}")
+            deals = await fetch_deals_by_filter(api, flt, limit=args.limit)
+    else:
+        deals = await fetch_deals_by_filter(api, flt, limit=args.limit)
     logger.info(f"Найдено сделок: {len(deals)}")
     return [str(d.get("ID")) for d in deals if d.get("ID")]

@@ -804,7 +804,7 @@ class UiBrowserSession:
                     last_error = str(e)
                     continue
 
-            return UiTranscriptResult(ok=False, error=f"Не нашёл или не прочитал кнопку расшифровки в карточке звонка" + (f": {last_error}" if last_error else ""))
+            return UiTranscriptResult(ok=False, error="Не нашёл или не прочитал кнопку расшифровки в карточке звонка" + (f": {last_error}" if last_error else ""))
         except self.WebDriverException as e:
             return UiTranscriptResult(ok=False, error=f"Selenium error: {e}")
 

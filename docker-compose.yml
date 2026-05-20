@@ -1,0 +1,11 @@
+﻿version: "3.8"
+
+services:
+  bitrix-automation:
+    build: .
+    volumes:
+      - .:/app
+      - ./reports:/app/reports
+    env_file:
+      - .env
+    command: python bitnewton_sync_to_api.py --mode filter --limit 50 --use-bitnewton

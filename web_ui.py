@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import subprocess
@@ -8,10 +9,12 @@ from typing import Optional
 
 import streamlit as st
 import pandas as pd
+from dotenv import load_dotenv
 from bitrix24_api import Bitrix24API
 from pipelines.cleanup import cleanup_old_outputs
 from pipelines.reporting import kpi_profile_display
 from pipelines.stages import DEFAULT_STAGE_NAMES
+from pipelines.token_status import current_bitnewton_token_status
 
 
 ROOT = Path(__file__).resolve().parent
@@ -22,6 +25,11 @@ LATEST_XLSX_REPORT = REPORTS_DIR / "latest_bitnewton_report.xlsx"
 KPI_FILES = sorted([p.name for p in ROOT.glob("kpi_config*.json")])
 LEAD_CATEGORY_NEW_FIELD = "UF_CRM_66571549AF539"
 LEAD_CATEGORY_NEW_IBLOCK_ID = 61
+load_dotenv(ROOT / ".env", override=True)
+
+
+def run_async(coro):
+    return asyncio.run(coro)
 
 
 def kpi_file_profile_name(filename: str) -> str:
@@ -88,18 +96,21 @@ def list_browser_profiles(browser_name: str) -> list[dict]:
 def fetch_active_users() -> list[dict]:
     api = Bitrix24API()
     users: list[dict] = []
-    start = 0
-    while True:
-        res = api.call("user.get", {"FILTER": {"ACTIVE": True}, "start": start})
-        chunk = res.get("result", []) or []
-        users.extend(chunk)
-        next_start = res.get("next")
-        if next_start is None:
-            break
-        try:
-            start = int(next_start)
-        except Exception:
-            break
+    try:
+        start = 0
+        while True:
+            res = run_async(api.call("user.get", {"FILTER": {"ACTIVE": True}, "start": start}))
+            chunk = res.get("result", []) or []
+            users.extend(chunk)
+            next_start = res.get("next")
+            if next_start is None:
+                break
+            try:
+                start = int(next_start)
+            except Exception:
+                break
+    finally:
+        run_async(api.aclose())
     users.sort(key=lambda u: ((u.get("LAST_NAME") or "").lower(), (u.get("NAME") or "").lower()))
     return users
 
@@ -112,7 +123,10 @@ def user_fio(u: dict) -> str:
 @st.cache_data(ttl=300)
 def fetch_deal_categories() -> list[dict]:
     api = Bitrix24API()
-    return api.call("crm.dealcategory.list", {}).get("result", []) or []
+    try:
+        return run_async(api.call("crm.dealcategory.list", {})).get("result", []) or []
+    finally:
+        run_async(api.aclose())
 
 
 def stage_entity_id(category_id: Optional[int]) -> str:
@@ -157,20 +171,25 @@ def fetch_deal_stages(category_ids: tuple[Optional[int], ...]) -> list[dict]:
     api = Bitrix24API()
     rows: list[dict] = []
     seen: set[str] = set()
-    for category_id in category_ids:
-        entity_id = stage_entity_id(category_id)
-        res = api.call("crm.status.list", {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}})
-        for row in res.get("result") or []:
-            stage_id = str(row.get("STATUS_ID") or "").strip()
-            name = str(row.get("NAME") or stage_id).strip()
-            if not stage_id or stage_id in seen:
-                continue
-            seen.add(stage_id)
-            try:
-                sort = int(row.get("SORT") or 0)
-            except Exception:
-                sort = 0
-            rows.append({"id": stage_id, "name": name, "sort": sort})
+    try:
+        for category_id in category_ids:
+            entity_id = stage_entity_id(category_id)
+            res = run_async(
+                api.call("crm.status.list", {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}})
+            )
+            for row in res.get("result") or []:
+                stage_id = str(row.get("STATUS_ID") or "").strip()
+                name = str(row.get("NAME") or stage_id).strip()
+                if not stage_id or stage_id in seen:
+                    continue
+                seen.add(stage_id)
+                try:
+                    sort = int(row.get("SORT") or 0)
+                except Exception:
+                    sort = 0
+                rows.append({"id": stage_id, "name": name, "sort": sort})
+    finally:
+        run_async(api.aclose())
 
     if not rows:
         rows = fallback_stage_rows(category_ids)
@@ -180,13 +199,18 @@ def fetch_deal_stages(category_ids: tuple[Optional[int], ...]) -> list[dict]:
 @st.cache_data(ttl=300)
 def fetch_lead_categories_new() -> list[dict]:
     api = Bitrix24API()
-    rows = api.get_all(
-        "lists.element.get",
-        {
-            "IBLOCK_TYPE_ID": "lists",
-            "IBLOCK_ID": LEAD_CATEGORY_NEW_IBLOCK_ID,
-        },
-    )
+    try:
+        rows = run_async(
+            api.get_all(
+                "lists.element.get",
+                {
+                    "IBLOCK_TYPE_ID": "lists",
+                    "IBLOCK_ID": LEAD_CATEGORY_NEW_IBLOCK_ID,
+                },
+            )
+        )
+    finally:
+        run_async(api.aclose())
     out: list[dict] = []
     for row in rows:
         category_id = str((row or {}).get("ID") or "").strip()
@@ -298,6 +322,13 @@ with st.sidebar:
     else:
         st.caption("Автоочистка: отчеты, аудио и расшифровки старше 30 дней удаляются автоматически.")
 
+    token_status = current_bitnewton_token_status()
+    days_left = token_status.get("days_left")
+    if isinstance(days_left, int) and days_left <= 3:
+        st.warning(token_status.get("message") or "Токен Bit.Newton скоро истечет.")
+    else:
+        st.caption(token_status.get("message") or "Статус токена Bit.Newton не определен.")
+
     st.header("Фильтр сделок")
     mode = st.radio("Режим", ["Выборка сделок", "Одна сделка по URL"], index=0)
     selected_stage_ids: list[str] = []
@@ -390,17 +421,90 @@ with st.sidebar:
     st.header("Опции")
     limit = st.number_input("Лимит сделок (max)", min_value=1, max_value=2000, value=200, step=10)
     max_calls_per_deal = st.number_input("Макс. звонков на сделку (0 = все)", min_value=0, max_value=50, value=0, step=1)
+    min_call_duration_sec = st.number_input(
+        "Не анализировать звонки короче, сек.",
+        min_value=0,
+        max_value=120,
+        value=15,
+        step=5,
+        help="Короткие 1–5 секундные попытки дозвона обычно не имеют записи и не являются разговором с клиентом.",
+    )
     exclude_call_center = st.checkbox("Не учитывать звонки операторов Call-центра", value=True)
+    dry_run = st.checkbox(
+        "Dry-run: безопасная проверка без новой ASR и записей в Bitrix",
+        value=False,
+        help=(
+            "Сценарий читает сделки, звонки и локальный кэш, но не скачивает новые аудио, "
+            "не отправляет записи в ASR и не прикрепляет результаты обратно в Bitrix/VibeCode."
+        ),
+    )
+    no_external_write_raw = st.checkbox(
+        "Не писать во внешние системы",
+        value=False,
+        disabled=dry_run,
+        help="Блокирует attachTranscription, VibeCode calls/transcription и timeline-logs, но не запрещает новую ASR.",
+    )
+    no_external_write = bool(dry_run or no_external_write_raw)
+    lost_deals_analysis = st.checkbox("Добавить анализ проигранных сделок", value=True)
+    lost_deals_limit = st.number_input(
+        "Лимит проигранных сделок",
+        min_value=50,
+        max_value=5000,
+        value=500,
+        step=50,
+        disabled=not lost_deals_analysis,
+        help="Для листов Excel: проигранные сделки, типичные причины отказов и инструменты роста конверсии.",
+    )
     st.caption("Для Bit.Newton нужен `BITNEWTON_TOKEN` в `.env`.")
 
     st.divider()
+    st.subheader("VibeCode API")
+    vibecode_key_present = bool(os.getenv("VIBECODE_API_KEY", "").strip())
+    use_vibecode = st.checkbox(
+        "Использовать VibeCode API",
+        value=vibecode_key_present,
+        help="Ключ берется из VIBECODE_API_KEY в .env. Если VibeCode не сработает, пайплайн вернется к обычному Bitrix REST.",
+    )
+    if not vibecode_key_present:
+        st.caption("VIBECODE_API_KEY не найден в `.env`; VibeCode будет пропущен.")
+    vibecode_read = st.checkbox(
+        "Читать сделки, звонки и стадии через VibeCode",
+        value=True,
+        disabled=not use_vibecode,
+    )
+    vibecode_audio_download = st.checkbox(
+        "Скачивать записи через VibeCode Disk",
+        value=True,
+        disabled=not use_vibecode,
+        help="Пробует /v1/files/:id/download до REST/UI fallback.",
+    )
+    vibecode_asr_fallback = st.checkbox(
+        "VibeCode ASR fallback, если Bit.Newton недоступен",
+        value=False,
+        disabled=not use_vibecode or dry_run,
+    )
+    vibecode_attach_transcription = st.checkbox(
+        "Прикреплять расшифровку через VibeCode",
+        value=False,
+        disabled=not use_vibecode or no_external_write,
+        help="Сейчас оставлено выключенным: в live-проверке endpoint VibeCode вернул 404, рабочий fallback — старый Bitrix REST attach.",
+    )
+    vibecode_timeline_log = st.checkbox(
+        "Записывать AI-анализ в таймлайн сделки",
+        value=False,
+        disabled=not use_vibecode or no_external_write,
+    )
+
+    st.divider()
     st.subheader("Bit.Newton (опционально)")
-    use_bitnewton = st.checkbox("Использовать Bit.Newton для расшифровки", value=True)
+    use_bitnewton = st.checkbox("Использовать Bit.Newton для расшифровки", value=not dry_run, disabled=dry_run)
+    if dry_run:
+        use_bitnewton = False
     diarize = st.checkbox("Разделение по спикерам (diarize)", value=False, disabled=not use_bitnewton)
     reuse_transcripts = st.checkbox(
         "Использовать уже сохранённые расшифровки",
         value=True,
-        disabled=not use_bitnewton,
+        disabled=(not use_bitnewton and not dry_run),
         help="Если звонок уже расшифровывался, отчет пересобирается из сохраненного текста без повторного скачивания аудио и отправки в Bit.Newton.",
     )
     rest_timeout_sec = st.number_input("Таймаут REST-скачивания, сек.", min_value=5, max_value=120, value=20, step=5, disabled=not use_bitnewton)
@@ -573,11 +677,35 @@ if run:
         args += ["--mode", "filter", "--filter-json", str(filter_path), "--limit", str(int(limit))]
 
     if run_mode != "Переоценить отчет без повторной расшифровки":
-        if not use_bitnewton:
+        if not use_bitnewton and not dry_run:
             st.error("Для обычной обработки и повтора ошибок нужен Bit.Newton. Для работы без Bit.Newton выбери режим переоценки.")
             st.stop()
-        args += ["--use-bitnewton"]
+        if dry_run:
+            args += ["--dry-run"]
+        if no_external_write:
+            args += ["--no-external-write"]
+        if use_bitnewton:
+            args += ["--use-bitnewton"]
+        if use_vibecode:
+            args += ["--use-vibecode"]
+            args += ["--vibecode-read" if vibecode_read else "--no-vibecode-read"]
+            args += [
+                "--vibecode-audio-download"
+                if vibecode_audio_download
+                else "--no-vibecode-audio-download"
+            ]
+            if vibecode_asr_fallback:
+                args += ["--vibecode-asr-fallback"]
+            if vibecode_attach_transcription:
+                args += ["--vibecode-attach-transcription"]
+            if vibecode_timeline_log:
+                args += ["--vibecode-timeline-log"]
+        else:
+            args += ["--no-use-vibecode"]
+        if lost_deals_analysis and run_mode == "Обычная обработка" and mode == "Выборка сделок":
+            args += ["--lost-deals-analysis", "--lost-deals-limit", str(int(lost_deals_limit))]
         args += ["--rest-timeout-sec", str(int(rest_timeout_sec))]
+        args += ["--min-call-duration-sec", str(int(min_call_duration_sec))]
         if int(max_calls_per_deal) > 0:
             args += ["--max-calls-per-deal", str(int(max_calls_per_deal))]
         if not reuse_transcripts:
@@ -590,7 +718,7 @@ if run:
             args += ["--download-audio"]
         if audio_source_dir.strip():
             args += ["--audio-source-dir", audio_source_dir.strip()]
-        if bitnewton_flow:
+        if bitnewton_flow and use_bitnewton:
             args += ["--bitnewton-flow"]
         if ui_download:
             args += ["--ui-download"]

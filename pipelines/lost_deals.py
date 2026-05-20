@@ -221,12 +221,12 @@ def _fallback_lost_filter(base_filter: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def _fetch_deals_page(
+async def _fetch_deals_page(
     api: Bitrix24API,
     flt: Dict[str, Any],
     start: Optional[int],
 ) -> Dict[str, Any]:
-    return api.call(
+    return await api.call(
         "crm.deal.list",
         {
             "filter": flt,
@@ -237,16 +237,16 @@ def _fetch_deals_page(
     )
 
 
-def fetch_lost_deals(api: Bitrix24API, flt: Dict[str, Any], limit: int = 500) -> List[Dict[str, Any]]:
+async def fetch_lost_deals(api: Bitrix24API, flt: Dict[str, Any], limit: int = 500) -> List[Dict[str, Any]]:
     max_items = max(0, int(limit or 0))
     if max_items <= 0:
         return []
 
-    def fetch_with_filter(active_filter: Dict[str, Any]) -> List[Dict[str, Any]]:
+    async def fetch_with_filter(active_filter: Dict[str, Any]) -> List[Dict[str, Any]]:
         deals: List[Dict[str, Any]] = []
         start: Optional[int] = 0
         while start is not None and len(deals) < max_items:
-            res = _fetch_deals_page(api, active_filter, start)
+            res = await _fetch_deals_page(api, active_filter, start)
             chunk = res.get("result", []) or []
             if not chunk:
                 break
@@ -258,12 +258,12 @@ def fetch_lost_deals(api: Bitrix24API, flt: Dict[str, Any], limit: int = 500) ->
         return deals
 
     try:
-        return fetch_with_filter(flt)
+        return await fetch_with_filter(flt)
     except Exception as e:
         fallback = _fallback_lost_filter(flt)
         logger.warning(f"[WARN] Не удалось получить проигранные сделки по STAGE_SEMANTIC_ID: {e}")
         logger.warning("[WARN] Пробую резервный фильтр по STAGE_ID проигрыша")
-        return fetch_with_filter(fallback)
+        return await fetch_with_filter(fallback)
 
 
 def result_text_index(results: List[Dict[str, Any]]) -> Dict[str, str]:
@@ -443,7 +443,7 @@ def expected_conversion_effect(category: str) -> str:
     return effects.get(category, "Повышение прозрачности причин проигрыша и качества управленческих решений.")
 
 
-def build_lost_deals_analysis(
+async def build_lost_deals_analysis(
     *,
     api: Bitrix24API,
     args: Any,
@@ -464,7 +464,7 @@ def build_lost_deals_analysis(
     lost_filter = lost_filter_from_base(base_filter)
     limit = int(getattr(args, "lost_deals_limit", 500) or 500)
     logger.info(f"[LOST] Загружаю проигранные сделки для анализа отказов, лимит={limit}")
-    deals = fetch_lost_deals(api, lost_filter, limit=limit)
+    deals = await fetch_lost_deals(api, lost_filter, limit=limit)
     if not deals:
         logger.info("[LOST] Проигранные сделки по текущим фильтрам не найдены")
         return {"rows": [], "summary_rows": [], "action_rows": []}
@@ -473,12 +473,14 @@ def build_lost_deals_analysis(
     missing_stage_ids = [stage_id for stage_id in lost_stage_ids if stage_id and stage_id not in stage_map]
     if missing_stage_ids:
         try:
-            stage_map = {**stage_map, **fetch_stage_name_map(api, missing_stage_ids)}
+            stage_map = {**stage_map, **await fetch_stage_name_map(api, missing_stage_ids)}
         except Exception as e:
             logger.warning(f"[WARN] Не удалось загрузить названия стадий проигрыша: {e}")
 
     manager_ids = [safe_int(deal.get("ASSIGNED_BY_ID")) for deal in deals]
-    manager_names = user_name_map(api, [manager_id for manager_id in manager_ids if manager_id is not None])
+    manager_names = await user_name_map(
+        api, [manager_id for manager_id in manager_ids if manager_id is not None]
+    )
     text_index = result_text_index(results)
     domain = str(getattr(args, "domain", "") or "")
     rows = [

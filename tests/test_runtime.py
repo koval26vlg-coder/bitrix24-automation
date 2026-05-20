@@ -1,15 +1,12 @@
 from types import SimpleNamespace
-
 import pytest
-
 from pipelines.runtime import (
     AudioRuntime,
     build_processing_context,
-    create_bitnewton_asr,
     prepare_audio_runtime,
     resolve_deal_scope,
 )
-
+from pipelines.factories import create_bitnewton_asr
 
 def test_create_bitnewton_asr_requires_enabled_flag():
     args = SimpleNamespace(use_bitnewton=False, bitnewton_flow=False)
@@ -18,12 +15,13 @@ def test_create_bitnewton_asr_requires_enabled_flag():
         create_bitnewton_asr(args)
 
 
-def test_create_bitnewton_asr_requires_token(monkeypatch):
+def test_create_bitnewton_asr_returns_disabled_asr_without_token(monkeypatch):
     args = SimpleNamespace(use_bitnewton=True, bitnewton_flow=False)
-    monkeypatch.setattr("pipelines.runtime.env_bitnewton_asr", lambda: None)
+    monkeypatch.setattr("pipelines.factories.env_bitnewton_asr", lambda: None)
 
-    with pytest.raises(SystemExit, match="BITNEWTON_TOKEN"):
-        create_bitnewton_asr(args)
+    asr = create_bitnewton_asr(args)
+
+    assert "BITNEWTON_TOKEN" in asr.auth_error
 
 
 def test_resolve_deal_scope_uses_retry_scope(monkeypatch):
@@ -39,7 +37,7 @@ def test_resolve_deal_scope_uses_retry_scope(monkeypatch):
 
 def test_resolve_deal_scope_falls_back_to_filter(monkeypatch):
     args = SimpleNamespace(retry_errors_from=None)
-    monkeypatch.setattr("pipelines.runtime.resolve_deal_ids", lambda args, api: ["30"])
+    monkeypatch.setattr("pipelines.runtime.resolve_deal_ids", lambda args, api, vibe=None: ["30"])
 
     scope, deal_ids = resolve_deal_scope(args, api=object())
 

@@ -128,7 +128,7 @@ def format_bitnewton_token_status(status: Dict[str, Any]) -> str:
     validation_ok = status.get("last_validation_ok")
     validation_error = str(status.get("last_validation_error") or "").strip()
     if days_left is None:
-        return f"Токен Bit.Newton активен. Дата окончания не рассчитана."
+        return "Токен Bit.Newton активен. Дата окончания не рассчитана."
     try:
         days = int(days_left)
     except Exception:

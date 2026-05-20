@@ -17,5 +17,9 @@ BITRIX24_BACKOFF_MAX_SEC = float(os.getenv('BITRIX24_BACKOFF_MAX_SEC', '20'))
 BITNEWTON_ASR_URL = os.getenv('BITNEWTON_ASR_URL', 'https://bit-asr.1bitai.ru')
 BITNEWTON_TOKEN = os.getenv('BITNEWTON_TOKEN')
 
+VIBECODE_API_KEY = os.getenv('VIBECODE_API_KEY')
+VIBECODE_TIMEOUT_SEC = float(os.getenv('VIBECODE_TIMEOUT_SEC', '30'))
+VIBECODE_MAX_ATTEMPTS = int(os.getenv('VIBECODE_MAX_ATTEMPTS', '3'))
+
 REPORTS_DIR = 'reports'
 os.makedirs(REPORTS_DIR, exist_ok=True)

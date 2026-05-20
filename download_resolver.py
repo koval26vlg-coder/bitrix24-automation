@@ -1,14 +1,13 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
+import asyncio
 import re
-import time
 import html as html_lib
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 from urllib.parse import urljoin
 
-import requests
+import httpx
 
 
 @dataclass
@@ -40,19 +39,18 @@ def _resolve_any_download_href(html: str, base_url: str) -> Optional[str]:
     if not html:
         return None
     patterns = [
-        r'href="([^"]+/docs/pub/[^"]+/download\?token=[^"]+)"',
-        r'href="([^"]+/docs/pub/[^"]+/download[^"]+)"',
-        r'href="([^"]+/docs/pub/[^"]+)"',
-        r'href="([^"]+/bitrix/tools/[^"]+)"',
-        r'href="([^"]+/bitrix/[^"]*download[^"]+)"',
-        r'href="([^"]+/download\?token=[^"]+)"',
+        r"href=\"([^\"]+/docs/pub/[^\"]+/download\?token=[^\"]+)\"",
+        r"href=\"([^\"]+/docs/pub/[^\"]+/download[^\"]+)\"",
+        r"href=\"([^\"]+/docs/pub/[^\"]+)\"",
+        r"href=\"([^\"]+/bitrix/tools/[^\"]+)\"",
+        r"href=\"([^\"]+/bitrix/[^\"]*download[^\"]+)\"",
+        r"href=\"([^\"]+/download\?token=[^\"]+)\"",
     ]
     for pat in patterns:
         m = re.search(pat, html)
         if not m:
             continue
         href = html_lib.unescape(m.group(1)).strip()
-        # В Bitrix иногда href выглядит как "/online-kassa.bitrix24.ru/docs/pub/...".
         href = re.sub(r"^/[^/]+\.bitrix24\.ru/", "/", href)
         if href.startswith("http"):
             return href
@@ -60,7 +58,7 @@ def _resolve_any_download_href(html: str, base_url: str) -> Optional[str]:
     return None
 
 
-def download_best_effort(
+async def download_best_effort(
     candidates: list[str],
     out_path: Path,
     timeout_sec: int = 180,
@@ -68,13 +66,9 @@ def download_best_effort(
     retries: int = 1,
 ) -> DownloadResult:
     """
-    Пытается скачать файл по цепочке URL-кандидатов. Если приходит HTML, пытается извлечь
-    следующую ссылку "Скачать" со страницы и скачать уже по ней.
-
-    Возвращает подробные попытки (для диагностики).
+    Пытается скачать файл по цепочке URL-кандидатов (асинхронно через httpx).
     """
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    sess = requests.Session()
     attempts: list[DownloadAttempt] = []
 
     headers = {"User-Agent": "Mozilla/5.0"}
@@ -86,68 +80,77 @@ def download_best_effort(
             break
     base_url = base_url or ""
 
-    def _try_url(u: str, referer: Optional[str]) -> Optional[Path]:
+    async def _try_url(client: httpx.AsyncClient, u: str, referer: Optional[str]) -> Optional[Path]:
         nonlocal attempts
         h = dict(headers)
         if referer:
             h["Referer"] = referer
 
-        r = sess.get(u, timeout=timeout_sec, allow_redirects=True, stream=True, headers=h)
-        hist = [x.status_code for x in r.history] if r.history else []
-        ctype = (r.headers.get("Content-Type") or "").lower() or None
-        attempts.append(
-            DownloadAttempt(
-                url=u,
-                status_code=r.status_code,
-                final_url=getattr(r, "url", None),
-                history=hist,
-                content_type=ctype,
-            )
-        )
-        if r.status_code >= 400:
+        try:
+            async with client.stream("GET", u, timeout=timeout_sec, follow_redirects=True, headers=h) as r:
+                hist = [resp.status_code for resp in r.history]
+                ctype = (r.headers.get("Content-Type") or "").lower() or None
+                attempts.append(
+                    DownloadAttempt(
+                        url=u,
+                        status_code=r.status_code,
+                        final_url=str(r.url),
+                        history=hist,
+                        content_type=ctype,
+                    )
+                )
+                if r.status_code >= 400:
+                    return None
+
+                # если html — попробуем вытащить download href
+                if ctype and "text/html" in ctype:
+                    first = await r.aiter_bytes(chunk_size=40000).__anext__()
+                    html = first.decode("utf-8", errors="ignore")
+                    direct = _resolve_any_download_href(html, base_url=base_url) if base_url else None
+                    attempts[-1].note = "html"
+                    if not direct:
+                        return None
+                    # второй шаг по извлеченной ссылке (рекурсивно, но в асинхронном клиенте это ок)
+                    return await _try_url(client, direct, referer=u)
+
+                # иначе считаем, что это файл; проверим первые байты
+                first_chunk = await r.aiter_bytes(chunk_size=4096).__anext__()
+                if _looks_like_html_prefix(first_chunk):
+                    attempts[-1].note = "html-bytes"
+                    return None
+
+                written = 0
+                with out_path.open("wb") as f:
+                    f.write(first_chunk)
+                    written += len(first_chunk)
+                    async for chunk in r.aiter_bytes(chunk_size=1024 * 256):
+                        if not chunk:
+                            continue
+                        f.write(chunk)
+                        written += len(chunk)
+                        if written > max_total_bytes:
+                            raise RuntimeError(f"Файл слишком большой (> {max_total_bytes} bytes), прервал скачивание.")
+                return out_path
+        except Exception as e:
+            if not attempts or attempts[-1].url != u:
+                attempts.append(DownloadAttempt(url=u, status_code=None, final_url=None, history=[], content_type=None, note=f"error: {e}"))
+            else:
+                attempts[-1].note += f" error: {e}"
             return None
-
-        # если html — попробуем вытащить download href
-        if ctype and "text/html" in ctype:
-            first = next(r.iter_content(chunk_size=40000), b"")
-            html = first.decode("utf-8", errors="ignore")
-            direct = _resolve_any_download_href(html, base_url=base_url) if base_url else None
-            attempts[-1].note = "html"
-            if not direct:
-                return None
-            # второй шаг по извлеченной ссылке
-            return _try_url(direct, referer=u)
-
-        # иначе считаем, что это файл; проверим первые байты
-        first = next(r.iter_content(chunk_size=4096), b"")
-        if _looks_like_html_prefix(first):
-            attempts[-1].note = "html-bytes"
-            return None
-
-        written = 0
-        with out_path.open("wb") as f:
-            f.write(first)
-            written += len(first)
-            for chunk in r.iter_content(chunk_size=1024 * 256):
-                if not chunk:
-                    continue
-                f.write(chunk)
-                written += len(chunk)
-                if written > max_total_bytes:
-                    raise RuntimeError(f"Файл слишком большой (> {max_total_bytes} bytes), прервал скачивание.")
-        return out_path
 
     clean_candidates = [html_lib.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]
     last_err = None
-    for _ in range(retries + 1):
-        for i, u in enumerate(clean_candidates):
-            try:
-                p = _try_url(u, referer=clean_candidates[i - 1] if i > 0 else None)
-                if p and p.exists() and p.stat().st_size > 0:
-                    return DownloadResult(ok=True, path=p, attempts=attempts)
-            except Exception as e:
-                last_err = str(e)
-        time.sleep(0.5)
+    
+    async with httpx.AsyncClient() as client:
+        for _ in range(retries + 1):
+            for i, u in enumerate(clean_candidates):
+                try:
+                    p = await _try_url(client, u, referer=clean_candidates[i - 1] if i > 0 else None)
+                    if p and p.exists() and p.stat().st_size > 0:
+                        return DownloadResult(ok=True, path=p, attempts=attempts)
+                except Exception as e:
+                    last_err = str(e)
+            await asyncio.sleep(0.5)
 
     # cleanup partial
     try:
@@ -156,4 +159,3 @@ def download_best_effort(
     except Exception:
         pass
     return DownloadResult(ok=False, path=None, attempts=attempts, error=last_err or "download failed")
-

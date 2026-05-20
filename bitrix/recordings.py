@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 import re
 import html
 from dataclasses import dataclass
@@ -54,23 +53,26 @@ class RecordingResolution:
     diagnostics: Dict[str, Any]
 
 
-def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
-    return api.call("crm.activity.get", {"id": int(activity_id)}).get("result", {}) or {}
+async def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
+    res = await api.call("crm.activity.get", {"id": int(activity_id)})
+    return res.get("result", {}) or {}
 
 
-def disk_file_get(api: Bitrix24API, disk_file_id: int) -> Dict[str, Any]:
-    return api.call("disk.file.get", {"id": int(disk_file_id)}).get("result", {}) or {}
+async def disk_file_get(api: Bitrix24API, disk_file_id: int) -> Dict[str, Any]:
+    res = await api.call("disk.file.get", {"id": int(disk_file_id)})
+    return res.get("result", {}) or {}
 
 
-def disk_file_get_external_link(api: Bitrix24API, disk_file_id: int) -> Optional[str]:
+async def disk_file_get_external_link(api: Bitrix24API, disk_file_id: int) -> Optional[str]:
     try:
-        res = api.call("disk.file.getExternalLink", {"id": int(disk_file_id)}).get("result")
-        return res if isinstance(res, str) and res.startswith("http") else None
+        res = await api.call("disk.file.getExternalLink", {"id": int(disk_file_id)})
+        link = res.get("result")
+        return link if isinstance(link, str) and link.startswith("http") else None
     except Exception:
         return None
 
 
-def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[Dict[str, Any]]:
+async def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[Dict[str, Any]]:
     if not call_id:
         return None
     # На части порталов crm.activity.ORIGIN_ID имеет префикс "VI_", а в статистике CALL_ID без него.
@@ -79,7 +81,7 @@ def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[Dict[st
         call_ids.append(call_id[3:])
     for cid in call_ids:
         try:
-            res = api.call("voximplant.statistic.get", {"FILTER": {"CALL_ID": cid}})
+            res = await api.call("voximplant.statistic.get", {"FILTER": {"CALL_ID": cid}})
             arr = res.get("result") or []
             if arr:
                 for c in arr:
@@ -91,7 +93,7 @@ def statistic_get_by_call_id(api: Bitrix24API, call_id: str) -> Optional[Dict[st
     return None
 
 
-def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional[int]) -> RecordingResolution:
+async def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional[int]) -> RecordingResolution:
     """
     Единый resolver записи звонка:
     crm.activity.get -> voximplant.statistic.get -> disk.file.get / externalLink -> URL candidates.
@@ -103,12 +105,11 @@ def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional
     disk_download_candidates: list[str] = []
     disk_page_candidates: list[str] = []
     disk_id: Optional[int] = None
-    act: Dict[str, Any] = {}
 
     # 1) crm.activity.get -> FILES[].id / FILES[].url
     if activity_id:
         try:
-            act = activity_get(api, int(activity_id))
+            act = await activity_get(api, int(activity_id))
             files = act.get("FILES") or []
             if files and isinstance(files[0], dict):
                 disk_id = safe_int(files[0].get("id")) or disk_id
@@ -119,7 +120,7 @@ def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional
             diag["activity_get_error"] = str(e)
 
     # 2) voximplant.statistic.get -> RECORD_FILE_ID + possibly direct URL
-    stat = statistic_get_by_call_id(api, call_id)
+    stat = await statistic_get_by_call_id(api, call_id)
     if stat:
         diag["statistic"] = {k: stat.get(k) for k in ["CALL_ID", "CRM_ACTIVITY_ID", "RECORD_FILE_ID", "CALL_START_DATE"]}
         disk_id = disk_id or safe_int(stat.get("RECORD_FILE_ID"))
@@ -133,11 +134,13 @@ def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional
         disk_meta: Dict[str, Any] = {}
         disk_err = None
         try:
-            disk_meta = disk_file_get(api, disk_id)
+            disk_meta = await disk_file_get(api, disk_id)
         except Exception as e:
             disk_err = str(e)
+        
         if disk_err:
             diag["disk_file_get_error"] = disk_err
+        
         if isinstance(disk_meta, dict):
             u = disk_meta.get("DOWNLOAD_URL")
             if isinstance(u, str) and u.startswith("http"):
@@ -148,11 +151,8 @@ def resolve_call_recording(api: Bitrix24API, call_id: str, activity_id: Optional
                 disk_page_candidates.append(html.unescape(u).strip())
             diag["disk_file_name"] = disk_meta.get("NAME")
             diag["disk_file_size"] = disk_meta.get("SIZE")
-            for k in []:
-                u = disk_meta.get(k)
-                if isinstance(u, str) and u.startswith("http"):
-                    disk_page_candidates.append(html.unescape(u).strip())
-        ext = disk_file_get_external_link(api, disk_id)
+
+        ext = await disk_file_get_external_link(api, disk_id)
         if ext:
             disk_download_candidates.append(html.unescape(ext).strip())
             diag["external_link_ok"] = True

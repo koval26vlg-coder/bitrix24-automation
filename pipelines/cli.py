@@ -4,6 +4,13 @@ import argparse
 import os
 
 
+def _env_bool(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    return str(raw).strip().lower() not in {"0", "false", "no", "off", "нет"}
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Bit.Newton: звонок -> аудио -> ASR -> attachtranscription")
     parser.add_argument("--mode", choices=["single", "filter"], default=None)
@@ -38,6 +45,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--kpi-config-compare", default=None, help="Второй KPI JSON для сравнения в этом же отчёте")
     parser.add_argument("--force-attach", action="store_true", help="Всегда делать attachtranscription, игнорируя локальный state_cache")
     parser.add_argument("--no-reuse-transcripts", action="store_true", help="Не использовать ранее сохранённые расшифровки; заново скачивать аудио и отправлять в Bit.Newton")
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "Безопасная репетиция боевого сценария: читать Bitrix/VibeCode и локальный кэш, "
+            "но не запускать новую ASR и не писать обратно во внешние системы"
+        ),
+    )
+    parser.add_argument(
+        "--no-external-write",
+        action="store_true",
+        help="Не выполнять внешние write-действия: attachTranscription, VibeCode calls/transcription и timeline-logs",
+    )
     parser.add_argument("--retry-errors-from", default=None, help="JSON отчета, из которого нужно повторить только строки с ошибками")
     parser.add_argument("--reevaluate-from", default=None, help="JSON отчета, который нужно переоценить без скачивания аудио и Bit.Newton")
     parser.add_argument("--max-calls-per-deal", type=int, default=0, help="Ограничить количество звонков для анализа по каждой сделке; 0 = все")
@@ -48,4 +68,40 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--lost-deals-limit", type=int, default=500, help="Лимит проигранных сделок для анализа причин отказа")
     parser.add_argument("--cleanup-output-days", type=int, default=30, help="Автоудаление отчетов, расшифровок и аудио старше N дней; 0 отключает")
     parser.add_argument("--cleanup-chrome-tmp-days", type=int, default=7, help="Удалять старые reports/chrome_profile_tmp_* (дней хранения)")
+    parser.add_argument(
+        "--use-vibecode",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("USE_VIBECODE", True),
+        help="Использовать VibeCode API при наличии VIBECODE_API_KEY",
+    )
+    parser.add_argument(
+        "--vibecode-read",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("VIBECODE_READ", True),
+        help="Читать сделки/активности/stage-history через VibeCode с fallback на Bitrix REST",
+    )
+    parser.add_argument(
+        "--vibecode-audio-download",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("VIBECODE_AUDIO_DOWNLOAD", True),
+        help="Пробовать скачать запись через /v1/files/:id/download до REST/UI fallback",
+    )
+    parser.add_argument(
+        "--vibecode-asr-fallback",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("VIBECODE_ASR_FALLBACK", False),
+        help="Если Bit.Newton недоступен, пробовать VibeCode /v1/audio/transcriptions",
+    )
+    parser.add_argument(
+        "--vibecode-attach-transcription",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("VIBECODE_ATTACH_TRANSCRIPTION", False),
+        help="Пробовать прикреплять расшифровку через VibeCode /v1/calls/transcription; по умолчанию выключено.",
+    )
+    parser.add_argument(
+        "--vibecode-timeline-log",
+        action=argparse.BooleanOptionalAction,
+        default=_env_bool("VIBECODE_TIMELINE_LOG", False),
+        help="Писать краткий результат анализа в таймлайн сделки через /v1/timeline-logs",
+    )
     return parser

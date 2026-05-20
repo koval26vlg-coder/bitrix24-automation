@@ -16,14 +16,14 @@ from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.reporting import build_manager_summary, flatten_results, prepare_report_rows, publish_latest_report
 from pipelines.retry import merge_retry_results
 from pipelines.stage_history import (
-
-from logging_setup import get_logger
-
-logger = get_logger(__name__)
     attach_stage_history_metrics,
     fetch_stage_history_by_deals,
     fetch_stage_name_map,
+    stage_entity_id_from_stage,
 )
+from logging_setup import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -34,9 +34,9 @@ class SyncReportOutput:
     stage_map: Dict[str, str]
 
 
-def enrich_manager_names(api: Bitrix24API, results: List[Dict[str, Any]]) -> None:
+async def enrich_manager_names(api: Bitrix24API, results: List[Dict[str, Any]]) -> None:
     manager_ids = [int(row["manager_id"]) for row in results if isinstance(row.get("manager_id"), int)]
-    names = user_name_map(api, manager_ids) if manager_ids else {}
+    names = await user_name_map(api, manager_ids) if manager_ids else {}
     for row in results:
         manager_id = row.get("manager_id")
         if isinstance(manager_id, int):
@@ -45,9 +45,11 @@ def enrich_manager_names(api: Bitrix24API, results: List[Dict[str, Any]]) -> Non
             row["overall_score"] = 0.0
 
 
-def load_stage_context(
+async def load_stage_context(
     api: Bitrix24API,
     results: List[Dict[str, Any]],
+    vibe: Any = None,
+    args: Any = None,
 ) -> tuple[Dict[str, str], Dict[str, List[Dict[str, Any]]]]:
     stage_ids_for_map = [str(row.get("stage_id") or "") for row in results]
     stage_history_by_deal: Dict[str, List[Dict[str, Any]]] = {}
@@ -57,23 +59,42 @@ def load_stage_context(
         )
         if unique_deal_ids:
             logger.info("[STAGE] Загружаю историю перемещений сделок по стадиям")
-            stage_history_by_deal = fetch_stage_history_by_deals(api, unique_deal_ids)
+            if vibe is not None and bool(getattr(args, "vibecode_read", True)):
+                try:
+                    stage_history_by_deal = vibe.fetch_stage_history(unique_deal_ids)
+                    logger.info("[VIBECODE] История стадий загружена через VibeCode")
+                except Exception as e:
+                    logger.warning(f"[WARN] VibeCode stage-history не сработал, fallback на Bitrix REST: {e}")
+                    stage_history_by_deal = await fetch_stage_history_by_deals(api, unique_deal_ids)
+            else:
+                stage_history_by_deal = await fetch_stage_history_by_deals(api, unique_deal_ids)
             for items in stage_history_by_deal.values():
                 stage_ids_for_map.extend(str(item.get("STAGE_ID") or "") for item in items if isinstance(item, dict))
     except Exception as e:
         logger.warning(f"[WARN] Не удалось загрузить историю стадий: {e}")
 
-    stage_map = fetch_stage_name_map(api, stage_ids_for_map)
+    stage_map = None
+    if vibe is not None and bool(getattr(args, "vibecode_read", True)):
+        try:
+            entities = sorted({stage_entity_id_from_stage(stage_id) for stage_id in stage_ids_for_map if stage_id})
+            stage_map = (await fetch_stage_name_map(api, [])) | vibe.fetch_stage_name_map(entities)
+            logger.info("[VIBECODE] Названия стадий загружены через VibeCode")
+        except Exception as e:
+            logger.warning(f"[WARN] VibeCode statuses/search не сработал, fallback на Bitrix REST: {e}")
+    if stage_map is None:
+        stage_map = await fetch_stage_name_map(api, stage_ids_for_map)
     return stage_map, stage_history_by_deal
 
 
-def apply_stage_context(
+async def apply_stage_context(
     api: Bitrix24API,
     results: List[Dict[str, Any]],
     kpi: Dict[str, Any],
     kpi_cmp: Optional[Dict[str, Any]],
+    vibe: Any = None,
+    args: Any = None,
 ) -> Dict[str, str]:
-    stage_map, stage_history_by_deal = load_stage_context(api, results)
+    stage_map, stage_history_by_deal = await load_stage_context(api, results, vibe=vibe, args=args)
     if stage_history_by_deal:
         attach_stage_history_metrics(results, stage_history_by_deal, stage_map=stage_map)
     refresh_crm_scores_after_stage_metrics(results, kpi, kpi_cmp)
@@ -91,8 +112,7 @@ def apply_retry_merge(
     final_results = merge_retry_results(source_rows, results, retry_scope)
     logger.info(
         f"[RETRY] Пересобираю полный отчет: исходных строк={len(source_rows)}, "
-        f"повторно обработано={len(results)}, итоговых строк={len(final_results)}",
-        flush=True,
+        f"повторно обработано={len(results)}, итоговых строк={len(final_results)}"
     )
     return final_results
 
@@ -152,7 +172,7 @@ def cleanup_chrome_tmp_if_needed(args: Any) -> None:
         logger.info(f"[OK] Удалено старых chrome_profile_tmp_*: {removed}")
 
 
-def finalize_sync_report(
+async def finalize_sync_report(
     *,
     api: Bitrix24API,
     args: Any,
@@ -162,11 +182,12 @@ def finalize_sync_report(
     retry_scope: Optional[Dict[str, Any]],
     ok: int,
     err: int,
+    vibe: Any = None,
 ) -> SyncReportOutput:
-    enrich_manager_names(api, results)
-    stage_map = apply_stage_context(api, results, kpi, kpi_cmp)
+    await enrich_manager_names(api, results)
+    stage_map = await apply_stage_context(api, results, kpi, kpi_cmp, vibe=vibe, args=args)
     final_results = apply_retry_merge(results, retry_scope)
-    lost_deals_analysis = build_lost_deals_analysis(
+    lost_deals_analysis = await build_lost_deals_analysis(
         api=api,
         args=args,
         results=final_results,

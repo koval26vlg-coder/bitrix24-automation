@@ -1,5 +1,4 @@
 from __future__ import annotations
-
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -17,38 +16,45 @@ from pipelines.transcription import (
     _sha256_text,
     load_cached_transcript,
     transcribe_with_bitnewton,
+    transcribe_with_vibecode,
 )
 
 
-def process_no_calls_deal(
+def _dry_run_enabled(ctx: ProcessingContext) -> bool:
+    return bool(getattr(ctx.args, "dry_run", False))
+
+
+def _external_writes_disabled(ctx: ProcessingContext) -> bool:
+    return bool(getattr(ctx.args, "no_external_write", False) or _dry_run_enabled(ctx))
+
+
+async def process_no_calls_deal(
     *,
-    args: Any,
+    ctx: ProcessingContext,
     deal_id: str,
     deal: Dict[str, Any],
     comments: List[str],
     discipline: Dict[str, Any],
     deal_quality: Dict[str, Any],
     manager_id: Optional[int],
-    kpi: Dict[str, Any],
-    kpi_cmp: Optional[Dict[str, Any]],
     call_center_acts: List[Dict[str, Any]],
     skipped_short_calls: int = 0,
 ) -> Dict[str, Any]:
-    error = (
+    error: str = (
         "По сделке не найдено звонков менеджера после исключения Call-центра"
         if call_center_acts
         else "По сделке не найдено звонков"
     )
     row: Dict[str, Any] = {
         "deal_id": deal_id,
-        "deal_url": deal_url_from_id(args.domain, deal_id),
+        "deal_url": deal_url_from_id(ctx.args.domain, deal_id),
         "stage_id": deal.get("STAGE_ID"),
         "manager_id": manager_id,
         "manager_name": None,
-        "kpi_profile": (kpi.get("profile") or {}).get("name"),
-        "kpi_version": (kpi.get("profile") or {}).get("version"),
-        "kpi_profile_cmp": (kpi_cmp.get("profile") or {}).get("name") if kpi_cmp else None,
-        "kpi_version_cmp": (kpi_cmp.get("profile") or {}).get("version") if kpi_cmp else None,
+        "kpi_profile": (ctx.kpi.get("profile") or {}).get("name"),
+        "kpi_version": (ctx.kpi.get("profile") or {}).get("version"),
+        "kpi_profile_cmp": (ctx.kpi_cmp.get("profile") or {}).get("name") if ctx.kpi_cmp else None,
+        "kpi_version_cmp": (ctx.kpi_cmp.get("profile") or {}).get("version") if ctx.kpi_cmp else None,
         "activity_id": None,
         "origin_id": None,
         "subject": "Звонков не найдено",
@@ -67,9 +73,10 @@ def process_no_calls_deal(
     }
     row.update(discipline)
     row.update(deal_quality)
-    apply_scores(row, deal, comments, "", kpi, suffix="")
-    if kpi_cmp is not None:
-        apply_scores(row, deal, comments, "", kpi_cmp, suffix="_cmp")
+
+    await apply_scores(row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator)
+    if ctx.kpi_cmp is not None:
+        await apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator)
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
             2,
@@ -126,16 +133,16 @@ def _build_call_row(
     return row
 
 
-def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], text: str) -> str:
-    args = ctx.args
-    bitrix_text = ""
+async def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], text: str) -> str:
+    args: Any = ctx.args
+    bitrix_text: str = ""
     if args.fetch_bitrix_card_transcript and args.ui_download:
         try:
             from ui_audio_downloader import UiBrowserSession
 
-            browser = str(getattr(args, "ui_browser", "chrome"))
-            ui_timeout_sec = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
-            browser_profile_directory = str(getattr(args, "browser_profile_directory", "Default") or "Default")
+            browser: str = str(getattr(args, "ui_browser", "chrome"))
+            ui_timeout_sec: int = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
+            browser_profile_directory: str = str(getattr(args, "browser_profile_directory", "Default") or "Default")
             if ctx.ui_browser_session is None:
                 ctx.ui_browser_session = UiBrowserSession(
                     downloads_dir=ctx.ui_audio_dir,
@@ -144,10 +151,11 @@ def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], t
                     browser_profile_directory=browser_profile_directory,
                 )
             print(
-                f"[UI] Пробую прочитать расшифровку из карточки Bitrix: activity_id={row.get('activity_id')}",
+                f"[UI] Пробую прочитать расшифровку из карточки Bitrix: "
+                f"activity_id={row.get('activity_id')}",
                 flush=True,
             )
-            tr_res = ctx.ui_browser_session.fetch_transcript_from_deal_timeline(
+            tr_res: Any = ctx.ui_browser_session.fetch_transcript_from_deal_timeline(
                 row["deal_url"],
                 int(row.get("activity_id") or 0),
                 timeout_sec=ui_timeout_sec,
@@ -166,7 +174,7 @@ def _fetch_bitrix_card_transcript(ctx: ProcessingContext, row: Dict[str, Any], t
     return bitrix_text
 
 
-def _mark_asr_skipped(
+async def _mark_asr_skipped(
     *,
     ctx: ProcessingContext,
     row: Dict[str, Any],
@@ -181,9 +189,10 @@ def _mark_asr_skipped(
     row["transcript_excerpt"] = ""
     row["bitrix_card_transcript_status"] = "Не запрашивалась: ASR пропущена"
     row["combined_transcript_text"] = ""
-    apply_scores(row, deal, comments, "", ctx.kpi, suffix="")
+
+    await apply_scores(row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator)
     if ctx.kpi_cmp is not None:
-        apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp")
+        await apply_scores(row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator)
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
             2,
@@ -196,7 +205,50 @@ def _mark_asr_skipped(
     return row, True
 
 
-def process_call(
+async def _attach_transcription(ctx: ProcessingContext, call_id: str, transcript_text: str, duration: int) -> Dict[str, Any]:
+    if _external_writes_disabled(ctx):
+        reason = "dry_run" if _dry_run_enabled(ctx) else "no_external_write"
+        return {"skipped": True, "reason": reason}
+
+    if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_attach_transcription", False)):
+        try:
+            res: Dict[str, Any] = ctx.vibe.attach_transcription(call_id, transcript_text)
+            return res
+        except Exception as e:
+            print(f"[WARN] VibeCode calls/transcription не сработал, fallback на Bitrix REST: {e}", flush=True)
+
+    return await attach_transcription_to_bitrix(
+        ctx.api,
+        call_id=call_id,
+        transcript_text=transcript_text,
+        duration=duration,
+    )
+
+
+async def _timeline_log_analysis(ctx: ProcessingContext, deal_id: str, row: Dict[str, Any]) -> None:
+    if ctx.vibe is None or not bool(getattr(ctx.args, "vibecode_timeline_log", False)):
+        return
+    if _external_writes_disabled(ctx):
+        reason = "dry_run" if _dry_run_enabled(ctx) else "no_external_write"
+        row["timeline_log_result"] = {"skipped": True, "reason": reason}
+        return
+    try:
+        score: float = float(row.get("overall_score") or 0.0)
+        call_score: float = float(row.get("call_quality_score") or 0.0)
+        risk: str = str(row.get("stage_movement_risk") or "")
+        text: str = (
+            f"Итоговая оценка: {score}. Качество разговора: {call_score}.\n"
+            f"Риск движения сделки: {risk}.\n\n"
+            f"Вывод: {row.get('call_quality_conclusion') or row.get('conversation_meaning') or ''}\n\n"
+            f"Рекомендации:\n{row.get('recommendations') or row.get('improvement_moments') or ''}"
+        ).strip()
+        result: Dict[str, Any] = ctx.vibe.timeline_log(deal_id, "AI-анализ звонка", text[:6000])
+        row["timeline_log_result"] = result
+    except Exception as e:
+        row["timeline_log_error"] = str(e)
+
+
+async def process_call(
     *,
     ctx: ProcessingContext,
     deal_id: str,
@@ -209,7 +261,7 @@ def process_call(
     activity: Dict[str, Any],
     skipped_short_calls: int = 0,
 ) -> Tuple[Dict[str, Any], bool]:
-    row = _build_call_row(
+    row: Dict[str, Any] = _build_call_row(
         args=ctx.args,
         deal_id=deal_id,
         deal=deal,
@@ -224,7 +276,7 @@ def process_call(
     )
 
     try:
-        call_id = str(row["origin_id"] or "")
+        call_id: str = str(row["origin_id"] or "")
         if not call_id:
             raise RuntimeError("Нет ORIGIN_ID (CALL_ID) для резолва записи")
 
@@ -237,11 +289,18 @@ def process_call(
                 row["transcript_excerpt"] = cached_text[:1200]
                 row["transcript_hash"] = _sha256_text(cached_text)
                 row["bitrix_card_transcript_status"] = "Не запрашивалась: использована сохранённая расшифровка"
-                finalize_transcript_analysis(row, deal, comments, cached_text, "", ctx.kpi, ctx.kpi_cmp)
+
+                await finalize_transcript_analysis(row, deal, comments, cached_text, "", ctx.kpi, ctx.kpi_cmp, codex_evaluator=ctx.codex_evaluator)
+
                 if ctx.args.force_attach:
-                    act_full = activity_get(ctx.api, int(activity.get("ID"))) if activity.get("ID") else activity
-                    attach = attach_transcription_to_bitrix(
-                        ctx.api,
+                    if _external_writes_disabled(ctx):
+                        act_full = activity
+                    else:
+                        act_id_raw = activity.get("ID")
+                        act_id = int(str(act_id_raw)) if act_id_raw else 0
+                        act_full = await activity_get(ctx.api, act_id) if act_id else activity
+                    attach = await _attach_transcription(
+                        ctx,
                         call_id=call_id,
                         transcript_text=cached_text,
                         duration=guess_duration_sec(act_full),
@@ -249,6 +308,7 @@ def process_call(
                     row["attach_result"] = attach
                 else:
                     row["attach_result"] = {"skipped": True, "reason": "cached_transcript_reused"}
+
                 ctx.state_cache[call_id] = {
                     "hash": row["transcript_hash"],
                     "transcript_path": str(cached_path),
@@ -258,11 +318,27 @@ def process_call(
                     "source": "cache",
                 }
                 _save_state_cache(ctx.state_cache)
-                print(f"[CACHE] Использую сохранённую расшифровку: activity_id={row.get('activity_id')}", flush=True)
+                await _timeline_log_analysis(ctx, deal_id, row)
+                print(
+                    f"[CACHE] Использую сохранённую расшифровку: "
+                    f"activity_id={row.get('activity_id')}",
+                    flush=True,
+                )
                 return row, True
 
-        if ctx.asr_disabled_reason:
-            return _mark_asr_skipped(
+        if _dry_run_enabled(ctx):
+            return await _mark_asr_skipped(
+                ctx=ctx,
+                row=row,
+                deal=deal,
+                comments=comments,
+                reason="dry-run: новая ASR и скачивание аудио отключены",
+            )
+
+        if ctx.asr_disabled_reason and not (
+            ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_asr_fallback", False))
+        ):
+            return await _mark_asr_skipped(
                 ctx=ctx,
                 row=row,
                 deal=deal,
@@ -270,7 +346,7 @@ def process_call(
                 reason=str(ctx.asr_disabled_reason),
             )
 
-        out_path, ctx.ui_browser_session = download_audio_for_call(
+        out_path, ctx.ui_browser_session = await download_audio_for_call(
             api=ctx.api,
             args=ctx.args,
             row=row,
@@ -281,37 +357,62 @@ def process_call(
             audio_dir=ctx.audio_dir,
             ui_audio_dir=ctx.ui_audio_dir,
             ui_browser_session=ctx.ui_browser_session,
+            vibe=ctx.vibe,
         )
 
-        text, task_id, transcript_path = transcribe_with_bitnewton(
-            asr=ctx.asr,
-            audio_path=out_path,
-            deal_id=deal_id,
-            activity_id=row.get("activity_id"),
-            diarize=bool(ctx.args.diarize),
-        )
+        try:
+            if ctx.asr_disabled_reason:
+                raise BitNewtonAuthError(str(ctx.asr_disabled_reason))
+            text, task_id, transcript_path = await transcribe_with_bitnewton(
+                asr=ctx.asr,
+                audio_path=out_path,
+                deal_id=deal_id,
+                activity_id=row.get("activity_id"),
+                diarize=bool(ctx.args.diarize),
+            )
+        except Exception as e:
+            if ctx.vibe is None or not bool(getattr(ctx.args, "vibecode_asr_fallback", False)):
+                raise
+            print(f"[VIBECODE] Bit.Newton недоступен ({e}); пробую VibeCode ASR", flush=True)
+            text, task_id, transcript_path = transcribe_with_vibecode(
+                vibe=ctx.vibe,
+                audio_path=out_path,
+                deal_id=deal_id,
+                activity_id=row.get("activity_id"),
+            )
+            row["asr_status"] = "Расшифровано через VibeCode ASR fallback"
+
         row["bitnewton_task_id"] = task_id
         row["transcript_path"] = str(transcript_path)
         row["transcript_text"] = text or ""
         row["transcript_excerpt"] = (text or "")[:1200]
-        bitrix_text = _fetch_bitrix_card_transcript(ctx, row, text)
 
-        finalize_transcript_analysis(row, deal, comments, text or "", bitrix_text, ctx.kpi, ctx.kpi_cmp)
+        bitrix_text = await _fetch_bitrix_card_transcript(ctx, row, text)
 
-        txt_hash = _sha256_text(text or "")
+        await finalize_transcript_analysis(row, deal, comments, text or "", bitrix_text, ctx.kpi, ctx.kpi_cmp, codex_evaluator=ctx.codex_evaluator)
+
+        txt_hash: str = _sha256_text(text or "")
         row["transcript_hash"] = txt_hash
-        cached = (ctx.state_cache.get(call_id) or {}) if isinstance(ctx.state_cache.get(call_id), dict) else None
+        cached_val: Any = ctx.state_cache.get(call_id)
+        cached: Dict[str, Any] = (cached_val or {}) if isinstance(cached_val, dict) else {}
+
         if (not ctx.args.force_attach) and cached and cached.get("hash") == txt_hash:
             row["attach_result"] = {"skipped": True, "reason": "state_cache_same_hash"}
         else:
-            act_full = activity_get(ctx.api, int(activity.get("ID"))) if activity.get("ID") else activity
-            attach = attach_transcription_to_bitrix(
-                ctx.api,
+            if _external_writes_disabled(ctx):
+                act_full = activity
+            else:
+                act_id_raw = activity.get("ID")
+                act_id = int(str(act_id_raw)) if act_id_raw else 0
+                act_full = await activity_get(ctx.api, act_id) if act_id else activity
+            attach = await _attach_transcription(
+                ctx,
                 call_id=call_id,
-                transcript_text=text,
+                transcript_text=text or "",
                 duration=guess_duration_sec(act_full),
             )
             row["attach_result"] = attach
+
         ctx.state_cache[call_id] = {
             "hash": txt_hash,
             "transcript_path": str(transcript_path),
@@ -322,17 +423,18 @@ def process_call(
             "source": "bitnewton",
         }
         _save_state_cache(ctx.state_cache)
+        await _timeline_log_analysis(ctx, deal_id, row)
         return row, True
     except BitNewtonAuthError as e:
         ctx.asr_disabled_reason = str(e)
-        return _mark_asr_skipped(ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e))
+        return await _mark_asr_skipped(ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e))
     except Exception as e:
         row["error"] = str(e)
         return row, False
     finally:
         if row.get("audio_path") and not ctx.args.download_audio:
             try:
-                Path(str(row["audio_path"])).unlink(missing_ok=True)  # type: ignore[call-arg]
+                Path(str(row["audio_path"])).unlink(missing_ok=True)
                 row["audio_path"] = None
             except Exception:
                 pass

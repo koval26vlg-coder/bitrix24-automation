@@ -153,7 +153,7 @@ def main():
         manager_id = input("Vvedite ID menedzhera: ").strip()
         manager_name = f"manager_{manager_id}"
 
-    logger.info(f"\nPoluchenie dannyh...")
+    logger.info("\nPoluchenie dannyh...")
 
     # Получаем данные
     data = reporter.get_data_for_period(entity_type, date_from, date_to, manager_id)

@@ -42,16 +42,16 @@ class CRMReportGenerator:
         logger.info("СВОДНАЯ СТАТИСТИКА")
         logger.info("="*50)
 
-        logger.info(f"\n📊 ЛИДЫ:")
+        logger.info("\n📊 ЛИДЫ:")
         logger.info(f"   Всего: {leads_stats.get('total', 0)}")
         logger.info(f"   Общая сумма: {leads_stats.get('total_opportunity', 0):.2f}")
         logger.info(f"   Средняя сумма: {leads_stats.get('avg_opportunity', 0):.2f}")
         if leads_stats.get('by_status'):
-            logger.info(f"   По статусам:")
+            logger.info("   По статусам:")
             for status, count in leads_stats['by_status'].items():
                 logger.info(f"     • {status}: {count}")
 
-        logger.info(f"\n💼 СДЕЛКИ:")
+        logger.info("\n💼 СДЕЛКИ:")
         logger.info(f"   Всего: {deals_stats.get('total', 0)}")
         logger.info(f"   Открытых: {deals_stats.get('open_count', 0)}")
         logger.info(f"   Закрытых: {deals_stats.get('closed_count', 0)}")
@@ -59,11 +59,11 @@ class CRMReportGenerator:
         logger.info(f"   Средняя сумма: {deals_stats.get('avg_opportunity', 0):.2f}")
         logger.info(f"   Средняя вероятность: {deals_stats.get('avg_probability', 0):.0f}%")
         if deals_stats.get('by_stage'):
-            logger.info(f"   По стадиям:")
+            logger.info("   По стадиям:")
             for stage, count in deals_stats['by_stage'].items():
                 logger.info(f"     • {stage}: {count}")
 
-        logger.info(f"\n👥 КОНТАКТЫ:")
+        logger.info("\n👥 КОНТАКТЫ:")
         logger.info(f"   Всего: {contacts_stats.get('total', 0)}")
         logger.info(f"   С телефоном: {contacts_stats.get('with_phone', 0)}")
         logger.info(f"   С email: {contacts_stats.get('with_email', 0)}")
@@ -76,19 +76,19 @@ class CRMReportGenerator:
         logger.info("="*50)
 
         if leads:
-            leads_file = self.leads_manager.export_to_excel(
+            self.leads_manager.export_to_excel(
                 leads,
                 f"{config.REPORTS_DIR}/report_leads_{timestamp}.xlsx"
             )
 
         if deals:
-            deals_file = self.deals_manager.export_to_excel(
+            self.deals_manager.export_to_excel(
                 deals,
                 f"{config.REPORTS_DIR}/report_deals_{timestamp}.xlsx"
             )
 
         if contacts:
-            contacts_file = self.contacts_manager.export_to_excel(
+            self.contacts_manager.export_to_excel(
                 contacts,
                 f"{config.REPORTS_DIR}/report_contacts_{timestamp}.xlsx"
             )

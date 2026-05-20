@@ -1,5 +1,5 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
+import asyncio
 from typing import Any, Dict, List, Optional
 
 from pipelines.calls import (
@@ -19,6 +19,30 @@ from pipelines.stages import safe_int
 def _is_missing_bitrix_deal_error(error: Exception) -> bool:
     text = str(error).lower()
     return "crm.deal.get" in text and "not found" in text
+
+
+async def _list_deal_call_activities(ctx: ProcessingContext, deal_id: str) -> List[Dict[str, Any]]:
+    if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_read", True)):
+        try:
+            # vibe пока синхронный
+            acts: List[Dict[str, Any]] = ctx.vibe.list_deal_call_activities(deal_id)
+            print(f"[VIBECODE] Звонки сделки получены через VibeCode: {len(acts)}", flush=True)
+            return acts
+        except Exception as e:
+            print(f"[WARN] VibeCode activities/search не сработал, fallback на Bitrix REST: {e}", flush=True)
+
+    return await list_deal_call_activities(ctx.api, deal_id)
+
+
+async def _deal_get(ctx: ProcessingContext, deal_id: str) -> Dict[str, Any]:
+    if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_read", True)):
+        try:
+            res: Dict[str, Any] = ctx.vibe.get_deal(deal_id)
+            return res
+        except Exception as e:
+            print(f"[WARN] VibeCode deals/{deal_id} не сработал, fallback на Bitrix REST: {e}", flush=True)
+
+    return await deal_get(ctx.api, deal_id)
 
 
 def _build_missing_deal_row(
@@ -68,7 +92,7 @@ def _build_missing_deal_row(
     return row
 
 
-def process_deal(
+async def process_deal(
     *,
     ctx: ProcessingContext,
     deal_id: str,
@@ -81,17 +105,42 @@ def process_deal(
     base_err: int = 0,
 ) -> DealProcessingResult:
     print(f"\nDEAL {deal_index}/{total_deals}: {deal_url_from_id(ctx.args.domain, deal_id)}")
-    acts_raw = list_deal_call_activities(ctx.api, deal_id)
+
+    acts_task = asyncio.create_task(_list_deal_call_activities(ctx, deal_id))
+    deal_task = asyncio.create_task(_deal_get(ctx, deal_id))
+
+    try:
+        acts_raw = await acts_task
+    except Exception as e:
+        try:
+            await deal_task
+        except Exception:
+            pass
+
+        if not _is_missing_bitrix_deal_error(e):
+            raise
+
+        row = _build_missing_deal_row(
+            ctx=ctx,
+            deal_id=deal_id,
+            error=e,
+            call_center_acts=[],
+            skipped_short_calls=0,
+        )
+        print(f"[DEAL NOT FOUND] ERR={base_err + 1}: {e}", flush=True)
+        return DealProcessingResult(rows=[row], ok=0, err=1)
+
     if ctx.args.include_call_center:
         acts = acts_raw
         call_center_acts: List[Dict[str, Any]] = []
     else:
-        acts, call_center_acts = split_call_center_operator_activities(
+        acts, call_center_acts = await split_call_center_operator_activities(
             ctx.api,
             acts_raw,
             user_cache,
             department_cache,
         )
+
     print(f"Звонков (crm.activity): {len(acts_raw)}")
     if call_center_acts:
         print(
@@ -99,7 +148,7 @@ def process_deal(
             flush=True,
         )
 
-    min_call_duration_sec = max(0, int(getattr(ctx.args, "min_call_duration_sec", 15) or 0))
+    min_call_duration_sec: int = max(0, int(getattr(ctx.args, "min_call_duration_sec", 15) or 0))
     skipped_short_acts: List[Dict[str, Any]] = []
     if min_call_duration_sec > 0:
         long_acts: List[Dict[str, Any]] = []
@@ -117,8 +166,8 @@ def process_deal(
         acts = long_acts
 
     if retry_scope is not None:
-        retry_ids = retry_scope.get("activity_ids_by_deal", {}).get(str(deal_id), set())
-        full_deal_retry = str(deal_id) in retry_scope.get("full_deals", set())
+        retry_ids: set[int] = retry_scope.get("activity_ids_by_deal", {}).get(str(deal_id), set())
+        full_deal_retry: bool = str(deal_id) in retry_scope.get("full_deals", set())
         if full_deal_retry:
             print("[RETRY] Ошибка была на уровне сделки, перепроверяю все звонки этой сделки", flush=True)
         else:
@@ -126,7 +175,7 @@ def process_deal(
             acts = [activity for activity in acts if safe_int(activity.get("ID")) in retry_ids]
             print(f"[RETRY] К повторной обработке звонков: {len(acts)} из {before_retry}", flush=True)
 
-    max_calls_per_deal = max(0, int(getattr(ctx.args, "max_calls_per_deal", 0) or 0))
+    max_calls_per_deal: int = max(0, int(getattr(ctx.args, "max_calls_per_deal", 0) or 0))
     if max_calls_per_deal and len(acts) > max_calls_per_deal:
         skipped_by_limit = len(acts) - max_calls_per_deal
         acts = acts[-max_calls_per_deal:]
@@ -140,7 +189,7 @@ def process_deal(
     ok = 0
     err = 0
     try:
-        deal = deal_get(ctx.api, deal_id)
+        deal = await deal_task
     except Exception as e:
         if not _is_missing_bitrix_deal_error(e):
             raise
@@ -156,22 +205,20 @@ def process_deal(
         print(f"[DEAL NOT FOUND] OK={base_ok + ok} ERR={base_err + err}: {e}", flush=True)
         return DealProcessingResult(rows=rows, ok=ok, err=err)
 
-    comments = fetch_timeline_comments(ctx.api, deal_id)
+    comments = await fetch_timeline_comments(ctx.api, deal_id)
     discipline = compute_discipline_metrics(deal, acts, ctx.kpi)
     deal_quality = compute_deal_quality(deal, comments, ctx.kpi)
     manager_id = safe_int(deal.get("ASSIGNED_BY_ID"))
 
     if not acts:
-        row = process_no_calls_deal(
-            args=ctx.args,
+        row = await process_no_calls_deal(
+            ctx=ctx,
             deal_id=deal_id,
             deal=deal,
             comments=comments,
             discipline=discipline,
             deal_quality=deal_quality,
             manager_id=manager_id,
-            kpi=ctx.kpi,
-            kpi_cmp=ctx.kpi_cmp,
             call_center_acts=call_center_acts,
             skipped_short_calls=len(skipped_short_acts),
         )
@@ -181,7 +228,7 @@ def process_deal(
         return DealProcessingResult(rows=rows, ok=ok, err=err)
 
     for activity_index, activity in enumerate(acts, 1):
-        row, success = process_call(
+        row, success = await process_call(
             ctx=ctx,
             deal_id=deal_id,
             deal=deal,
@@ -203,7 +250,7 @@ def process_deal(
     return DealProcessingResult(rows=rows, ok=ok, err=err)
 
 
-def process_deals(
+async def process_deals(
     *,
     ctx: ProcessingContext,
     deal_ids: List[str],
@@ -215,18 +262,30 @@ def process_deals(
     user_cache: Dict[int, Dict[str, Any]] = {}
     department_cache: Dict[int, Dict[str, Any]] = {}
 
+    semaphore = asyncio.Semaphore(5)
+
+    async def _process_one(d_id: str, d_idx: int) -> DealProcessingResult:
+        nonlocal ok, err
+        async with semaphore:
+            return await process_deal(
+                ctx=ctx,
+                deal_id=d_id,
+                deal_index=d_idx,
+                total_deals=len(deal_ids),
+                retry_scope=retry_scope,
+                user_cache=user_cache,
+                department_cache=department_cache,
+                base_ok=ok,
+                base_err=err,
+            )
+
+    tasks = []
     for deal_index, deal_id in enumerate(deal_ids, 1):
-        deal_result = process_deal(
-            ctx=ctx,
-            deal_id=deal_id,
-            deal_index=deal_index,
-            total_deals=len(deal_ids),
-            retry_scope=retry_scope,
-            user_cache=user_cache,
-            department_cache=department_cache,
-            base_ok=ok,
-            base_err=err,
-        )
+        tasks.append(_process_one(deal_id, deal_index))
+
+    results: List[DealProcessingResult] = await asyncio.gather(*tasks)
+
+    for deal_result in results:
         rows.extend(deal_result.rows)
         ok += deal_result.ok
         err += deal_result.err

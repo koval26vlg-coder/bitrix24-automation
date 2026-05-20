@@ -1,9 +1,7 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 import hashlib
 import json
 import re
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -87,7 +85,7 @@ def load_cached_transcript(
     return None, None
 
 
-def transcribe_with_bitnewton(
+async def transcribe_with_bitnewton(
     *,
     asr: Any,
     audio_path: Path,
@@ -95,8 +93,14 @@ def transcribe_with_bitnewton(
     activity_id: Any,
     diarize: bool,
 ) -> Tuple[str, str, Path]:
+    # asr пока синхронный в asr/bitnewton.py, но мы можем обернуть в wait
+    # В идеале asr тоже должен быть асинхронным
     task = asr.start_transcribing(str(audio_path), diarize=bool(diarize), remove_timestamps=True)
+    
+    # Это блокирующая операция, но она ждет результата ASR
+    # В будущем стоит перевести asr.wait_and_get_text на асинхронность
     text = asr.wait_and_get_text(task.task_id, timeout_sec=1800) or ""
+    
     transcript_path = save_transcript_file(
         deal_id=str(deal_id),
         activity_id=activity_id,
@@ -104,3 +108,21 @@ def transcribe_with_bitnewton(
         text=text,
     )
     return text, task.task_id, transcript_path
+
+
+def transcribe_with_vibecode(
+    *,
+    vibe: Any,
+    audio_path: Path,
+    deal_id: Any,
+    activity_id: Any,
+) -> Tuple[str, str, Path]:
+    text = vibe.transcribe_audio(Path(audio_path), language="ru") or ""
+    task_id = "vibecode_asr_" + hashlib.sha256(Path(audio_path).name.encode("utf-8", errors="ignore")).hexdigest()[:12]
+    transcript_path = save_transcript_file(
+        deal_id=str(deal_id),
+        activity_id=activity_id,
+        task_id=task_id,
+        text=text,
+    )
+    return text, task_id, transcript_path

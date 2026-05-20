@@ -7,8 +7,24 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
+from pipelines.conversation_intelligence import (
+    CI_OBJECTION_COLUMNS,
+    CONVERSATION_MAP_COLUMNS,
+    CONVERSION_FACTOR_COLUMNS,
+    EMOTIONAL_RISK_COLUMNS,
+    MANAGER_RECOMMENDATION_COLUMNS,
+    build_conversation_intelligence,
+)
 from pipelines.paths import LATEST_JSON_REPORT, LATEST_XLSX_REPORT, REPORTS_DIR
 from pipelines.scoring import _clean_text_for_report, evaluate_crm_checklist, quality_label
+from pipelines.script_scoring import (
+    SCRIPT_GAP_COLUMNS,
+    SCRIPT_PROFILE_COLUMNS,
+    SCRIPT_SCORE_COLUMNS,
+    build_script_gap_rows,
+    build_script_profile_rows,
+    build_script_score_rows,
+)
 from pipelines.stages import safe_int, stage_display_name, stage_order_map
 
 from logging_setup import get_logger
@@ -81,6 +97,8 @@ RU_COLUMNS: Dict[str, str] = {
     "asr_skipped": "ASR пропущена",
     "asr_skipped_calls": "Звонков без новой ASR",
     "attach_result": "Результат прикрепления в Bitrix",
+    "timeline_log_result": "Запись анализа в таймлайн",
+    "timeline_log_error": "Ошибка записи в таймлайн",
     "error": "Ошибка",
     "calls_count": "Кол-во звонков по сделке",
     "first_response_minutes": "Время до первого звонка, мин.",
@@ -95,6 +113,8 @@ RU_COLUMNS: Dict[str, str] = {
     "has_comments": "Есть комментарии/следующие шаги",
     "recording_diagnostics": "Диагностика записи",
     "download_attempts": "Попытки REST-скачивания",
+    "vibecode_download_used": "Скачано через VibeCode",
+    "vibecode_download_error": "Ошибка скачивания VibeCode",
     "ui_download_errors": "Ошибки UI-скачивания",
     "ui_download_used": "Использовано UI-скачивание",
     "ui_download_path": "Путь UI-скачивания",
@@ -147,13 +167,12 @@ RU_COLUMNS: Dict[str, str] = {
     "next_step_synced": "Следующий шаг синхронизирован с CRM",
     "next_step_synced_details": "Что дает синхронизация следующего шага",
     "crm_checklist_total_score": "Баллы по CRM-чек-листу",
-    "crm_checklist_max_score": "Максимум CRM-чек-листа",
+    "crm_checklist_max_score": "Максимальный балл CRM",
     "crm_checklist_percent": "CRM-чек-лист, %",
     "crm_checklist_details": "Критерии ведения CRM",
     "crm_checklist_block_name": "Блок CRM",
     "crm_checklist_criterion": "Критерий CRM",
     "crm_checklist_score": "Оценка CRM-критерия",
-    "crm_checklist_max_score": "Максимум CRM-критерия",
     "crm_checklist_comment": "Комментарий CRM-оценки",
     "crm_checklist_code": "Код CRM-критерия",
     "crm_criterion_deals": "Сделок с критерием",
@@ -256,6 +275,74 @@ RU_COLUMNS: Dict[str, str] = {
     "conversion_priority": "Приоритет внедрения",
     "conversion_rank": "Порядок внедрения",
     "conversion_expected_effect": "Ожидаемый эффект",
+    "ci_moment_type": "Тип момента",
+    "ci_moment_risk": "Риск момента",
+    "ci_moment_fragment": "Фрагмент разговора",
+    "ci_moment_recommendation": "Что улучшить",
+    "ci_moment_source": "Источник вывода",
+    "ci_confidence": "Уверенность вывода",
+    "objection_type": "Тип возражения",
+    "ci_next_manager_action": "Следующее действие менеджера",
+    "ci_emotion_state": "Состояние клиента по тексту",
+    "ci_emotional_risk_level": "Уровень эмоционального риска",
+    "ci_emotional_risk_score": "Оценка эмоционального риска",
+    "ci_uncertainty_hits": "Индикаторов сомнения",
+    "ci_negative_hits": "Индикаторов негатива/отказа",
+    "ci_manager_uncertainty_hits": "Неуверенных формулировок",
+    "ci_unhandled_objections_count": "Неотработанных возражений",
+    "ci_questions_count": "Вопросов в разговоре",
+    "ci_next_step_present": "Следующий шаг прозвучал",
+    "ci_risk_evidence": "Основание риска",
+    "ci_recommendation": "Рекомендация",
+    "ci_conversion_factor": "Фактор конверсии",
+    "ci_factor_source": "Источник фактора",
+    "ci_factor_priority": "Приоритет фактора",
+    "ci_affected_deals": "Затронуто сделок",
+    "ci_affected_calls": "Затронуто звонков",
+    "ci_factor_share_percent": "Доля затронутых сделок, %",
+    "ci_avg_overall_score": "Средняя итоговая оценка",
+    "ci_avg_call_quality_score": "Средняя оценка разговора",
+    "ci_expected_effect": "Ожидаемый эффект",
+    "ci_conversion_action": "Действие для роста конверсии",
+    "ci_manager_priority": "Приоритет рекомендации",
+    "ci_manager_deals": "Сделок менеджера",
+    "ci_manager_calls": "Звонков менеджера",
+    "ci_high_risk_calls": "Звонков с высоким риском",
+    "ci_no_next_step_count": "Звонков без следующего шага",
+    "ci_low_crm_count": "Звонков со слабой CRM",
+    "ci_main_growth_area": "Главная зона роста",
+    "ci_manager_recommendation": "Рекомендация менеджеру",
+    "ci_manager_next_action": "Следующее действие руководителя",
+    "script_block": "Блок скрипта",
+    "script_step": "Шаг скрипта",
+    "script_profile_id": "ID профиля скрипта",
+    "script_profile_name": "Профиль скрипта",
+    "script_profile_purpose": "Назначение профиля",
+    "script_profile_selected": "Профиль выбран для звонка",
+    "script_profile_score": "Баллы соответствия скрипту",
+    "script_profile_max_score": "Максимум соответствия скрипту",
+    "script_profile_match_percent": "Соответствие скрипту, %",
+    "script_profile_status": "Статус соответствия скрипту",
+    "script_critical_errors_count": "Критичных ошибок",
+    "script_critical_errors": "Критичные ошибки",
+    "script_failed_steps": "Проваленные шаги",
+    "script_profile_recommendation": "Рекомендация по профилю",
+    "script_required_action": "Что должен сделать менеджер",
+    "script_score": "Оценка по шагу",
+    "script_max_score": "Максимум по шагу",
+    "script_score_percent": "Выполнение шага, %",
+    "script_status": "Статус шага",
+    "script_critical_step": "Критичный шаг",
+    "script_critical_error": "Критичная ошибка",
+    "script_evidence": "Доказательство из расшифровки",
+    "script_recommendation": "Рекомендация по шагу",
+    "script_weight": "Вес шага",
+    "script_gap_count": "Провалов шага",
+    "script_partial_count": "Частичных выполнений",
+    "script_calls": "Звонков с шагом",
+    "script_gap_rate": "Доля проблем, %",
+    "script_priority": "Приоритет",
+    "script_training_recommendation": "Обучение/действие",
 }
 
 
@@ -1540,6 +1627,8 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
             "Варианты отработки возражений",
             "Расшифровка с пометками",
             "Что усилить по этапу",
+            "Критичные ошибки",
+            "Проваленные шаги",
         ]
         for row_idx in range(2, ws.max_row + 1):
             for header in issue_headers:
@@ -1556,6 +1645,36 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                 if "не отработано" in status:
                     fill = unhandled_fill
                 elif "отработано" in status:
+                    fill = handled_fill
+                else:
+                    fill = None
+                if fill:
+                    for col_idx in range(1, ws.max_column + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = fill
+
+            script_status_col = headers.get("Статус шага")
+            if script_status_col:
+                status = str(ws.cell(row=row_idx, column=script_status_col).value or "").lower()
+                if "провал" in status:
+                    fill = critical_fill
+                elif "частично" in status:
+                    fill = warning_fill
+                elif "выполнено" in status:
+                    fill = handled_fill
+                else:
+                    fill = None
+                if fill:
+                    for col_idx in range(1, ws.max_column + 1):
+                        ws.cell(row=row_idx, column=col_idx).fill = fill
+
+            script_profile_status_col = headers.get("Статус соответствия скрипту")
+            if script_profile_status_col:
+                status = str(ws.cell(row=row_idx, column=script_profile_status_col).value or "").lower()
+                if "не соответствует" in status:
+                    fill = critical_fill
+                elif "частично" in status or "замечания" in status:
+                    fill = warning_fill
+                elif "соответствует" in status:
                     fill = handled_fill
                 else:
                     fill = None
@@ -1644,7 +1763,15 @@ def _format_excel_writer(writer: pd.ExcelWriter) -> None:
                 except Exception:
                     pass
 
-            priority_col = headers.get("Приоритет контроля") or headers.get("Приоритет обучения")
+            priority_col = (
+                headers.get("Приоритет контроля")
+                or headers.get("Приоритет обучения")
+                or headers.get("Приоритет рекомендации")
+                or headers.get("Приоритет фактора")
+                or headers.get("Уровень эмоционального риска")
+                or headers.get("Риск момента")
+                or headers.get("Приоритет")
+            )
             if priority_col:
                 priority = str(ws.cell(row=row_idx, column=priority_col).value or "").lower()
                 if "критично" in priority:
@@ -1696,6 +1823,15 @@ def flatten_results(
     lost_deal_rows = (lost_deals_analysis or {}).get("rows") or []
     lost_reason_summary_rows = (lost_deals_analysis or {}).get("summary_rows") or []
     conversion_action_rows = (lost_deals_analysis or {}).get("action_rows") or []
+    conversation_intelligence = build_conversation_intelligence(report_rows, lost_reason_summary_rows)
+    conversation_map_rows = conversation_intelligence["conversation_map_rows"]
+    ci_objection_rows = conversation_intelligence["objection_rows"]
+    emotional_risk_rows = conversation_intelligence["emotional_risk_rows"]
+    ci_conversion_factor_rows = conversation_intelligence["conversion_factor_rows"]
+    ci_manager_recommendation_rows = conversation_intelligence["manager_recommendation_rows"]
+    script_score_rows = build_script_score_rows(report_rows)
+    script_profile_rows = build_script_profile_rows(script_score_rows)
+    script_gap_rows = build_script_gap_rows(script_score_rows)
     deal_cols = [
         "deal_url",
         "stage_name",
@@ -1763,6 +1899,8 @@ def flatten_results(
         "call_has_error",
         "asr_status",
         "skipped_short_calls",
+        "vibecode_download_used",
+        "vibecode_download_error",
         "call_quality_score",
         "call_quality_details",
         "call_checklist_total_score",
@@ -1791,6 +1929,8 @@ def flatten_results(
         "bitrix_card_transcript_status",
         "transcript_match_score",
         "bitrix_card_transcript",
+        "timeline_log_result",
+        "timeline_log_error",
         "error",
     ]
     objection_cols = [
@@ -2027,6 +2167,29 @@ def flatten_results(
             _ru_df(call_df[[c for c in call_detail_cols if c in call_df.columns]]).to_excel(writer, sheet_name="Звонки внутри сделок", index=False)
             objection_df = pd.DataFrame(objection_rows, columns=objection_cols)
             _ru_df(objection_df).to_excel(writer, sheet_name="Разбор возражений", index=False)
+            conversation_map_df = pd.DataFrame(conversation_map_rows, columns=CONVERSATION_MAP_COLUMNS)
+            _ru_df(conversation_map_df).to_excel(writer, sheet_name="Карта разговора", index=False)
+            ci_objection_df = pd.DataFrame(ci_objection_rows, columns=CI_OBJECTION_COLUMNS)
+            _ru_df(ci_objection_df).to_excel(writer, sheet_name="Возражения", index=False)
+            emotional_risk_df = pd.DataFrame(emotional_risk_rows, columns=EMOTIONAL_RISK_COLUMNS)
+            _ru_df(emotional_risk_df).to_excel(writer, sheet_name="Эмоциональные риски", index=False)
+            ci_conversion_factor_df = pd.DataFrame(ci_conversion_factor_rows, columns=CONVERSION_FACTOR_COLUMNS)
+            _ru_df(ci_conversion_factor_df).to_excel(writer, sheet_name="Факторы конверсии", index=False)
+            ci_manager_recommendation_df = pd.DataFrame(
+                ci_manager_recommendation_rows,
+                columns=MANAGER_RECOMMENDATION_COLUMNS,
+            )
+            _ru_df(ci_manager_recommendation_df).to_excel(
+                writer,
+                sheet_name="Рекомендации менеджерам",
+                index=False,
+            )
+            script_profile_df = pd.DataFrame(script_profile_rows, columns=SCRIPT_PROFILE_COLUMNS)
+            _ru_df(script_profile_df).to_excel(writer, sheet_name="Соответствие скриптам", index=False)
+            script_score_df = pd.DataFrame(script_score_rows, columns=SCRIPT_SCORE_COLUMNS)
+            _ru_df(script_score_df).to_excel(writer, sheet_name="Оценка по скрипту", index=False)
+            script_gap_df = pd.DataFrame(script_gap_rows, columns=SCRIPT_GAP_COLUMNS)
+            _ru_df(script_gap_df).to_excel(writer, sheet_name="Провалы скрипта", index=False)
             checklist_df = pd.DataFrame(checklist_rows, columns=checklist_cols)
             _ru_df(checklist_df).to_excel(writer, sheet_name="Чек-лист звонков", index=False)
             sales_stage_score_df = pd.DataFrame(sales_stage_score_rows, columns=sales_stage_score_cols)

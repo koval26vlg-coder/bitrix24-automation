@@ -1,11 +1,10 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 from typing import Any, Dict, List
 
 from bitrix.api import Bitrix24API
 
 
-def attach_transcription_to_bitrix(api: Bitrix24API, call_id: str, transcript_text: str, duration: int) -> Dict[str, Any]:
+async def attach_transcription_to_bitrix(api: Bitrix24API, call_id: str, transcript_text: str, duration: int) -> Dict[str, Any]:
     text = (transcript_text or "").strip()
     if not text:
         raise RuntimeError("Пустая расшифровка (transcript_text)")
@@ -24,8 +23,9 @@ def attach_transcription_to_bitrix(api: Bitrix24API, call_id: str, transcript_te
             continue
         seen.add(cid)
         try:
-            res = api.call("telephony.call.attachTranscription", {"CALL_ID": cid, "MESSAGES": [msg]}).get("result", {}) or {}
-            return {"call_id_used": cid, "result": res}
+            res = await api.call("telephony.call.attachTranscription", {"CALL_ID": cid, "MESSAGES": [msg]})
+            result = res.get("result", {}) or {}
+            return {"call_id_used": cid, "result": result}
         except Exception as e:
             errors.append(f"{cid}: {e}")
 

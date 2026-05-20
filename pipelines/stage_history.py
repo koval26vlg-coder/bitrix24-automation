@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-import time
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
@@ -29,12 +29,14 @@ def stage_entity_id_from_stage(stage_id: str) -> str:
     return "DEAL_STAGE"
 
 
-def fetch_stage_name_map(api: Bitrix24API, stage_ids: List[str]) -> Dict[str, str]:
+async def fetch_stage_name_map(api: Bitrix24API, stage_ids: List[str]) -> Dict[str, str]:
     out = dict(DEFAULT_STAGE_NAMES)
     entities = sorted({stage_entity_id_from_stage(stage_id) for stage_id in stage_ids if stage_id})
     for entity in entities:
         try:
-            res = api.call("crm.status.list", {"filter": {"ENTITY_ID": entity}, "order": {"SORT": "ASC"}})
+            res = await api.call(
+                "crm.status.list", {"filter": {"ENTITY_ID": entity}, "order": {"SORT": "ASC"}}
+            )
             for row in res.get("result") or []:
                 sid = str(row.get("STATUS_ID") or "").strip()
                 name = str(row.get("NAME") or "").strip()
@@ -96,7 +98,9 @@ def _stage_history_next_start(data: Dict[str, Any], current_start: int, items_co
     return None
 
 
-def fetch_stage_history_by_deals(api: Bitrix24API, deal_ids: List[str], chunk_size: int = 50) -> Dict[str, List[Dict[str, Any]]]:
+async def fetch_stage_history_by_deals(
+    api: Bitrix24API, deal_ids: List[str], chunk_size: int = 50
+) -> Dict[str, List[Dict[str, Any]]]:
     out: Dict[str, List[Dict[str, Any]]] = {str(deal_id): [] for deal_id in deal_ids if deal_id}
     clean_ids = [int(d) for d in dict.fromkeys(str(deal_id) for deal_id in deal_ids if str(deal_id).isdigit())]
     for chunk_start in range(0, len(clean_ids), max(1, chunk_size)):
@@ -109,7 +113,7 @@ def fetch_stage_history_by_deals(api: Bitrix24API, deal_ids: List[str], chunk_si
                 "order": {"OWNER_ID": "ASC", "ID": "ASC"},
                 "start": start,
             }
-            data = api.call("crm.stagehistory.list", params)
+            data = await api.call("crm.stagehistory.list", params)
             items = _stage_history_items_from_response(data)
             for item in items:
                 owner_id = str(item.get("OWNER_ID") or "").strip()
@@ -117,7 +121,7 @@ def fetch_stage_history_by_deals(api: Bitrix24API, deal_ids: List[str], chunk_si
                     out.setdefault(owner_id, []).append(item)
             start = _stage_history_next_start(data, int(start or 0), len(items))
             if start is not None:
-                time.sleep(0.1)
+                await asyncio.sleep(0.1)
     return out
 
 

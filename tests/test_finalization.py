@@ -1,16 +1,23 @@
 from types import SimpleNamespace
 
+import pytest
+
 from pipelines.finalization import enrich_manager_names, finalize_sync_report, write_sync_report
 
 
-def test_enrich_manager_names_fills_names_and_default_score(monkeypatch):
+@pytest.mark.asyncio
+async def test_enrich_manager_names_fills_names_and_default_score(monkeypatch):
     rows = [
         {"deal_id": "10", "manager_id": 5, "overall_score": None},
         {"deal_id": "20", "manager_id": "not-int", "overall_score": 70},
     ]
-    monkeypatch.setattr("pipelines.finalization.user_name_map", lambda api, user_ids: {5: "Иван Иванов"})
 
-    enrich_manager_names(api=object(), results=rows)
+    async def fake_user_name_map(api, user_ids):
+        return {5: "Иван Иванов"}
+
+    monkeypatch.setattr("pipelines.finalization.user_name_map", fake_user_name_map)
+
+    await enrich_manager_names(api=object(), results=rows)
 
     assert rows[0]["manager_name"] == "Иван Иванов"
     assert rows[0]["overall_score"] == 0.0
@@ -22,8 +29,15 @@ def test_write_sync_report_writes_json_and_returns_xlsx(monkeypatch, tmp_path):
     xlsx_path = tmp_path / "report.xlsx"
     published = {}
 
-    def fake_flatten_results(report_results, manager_summary, manager_summary_cmp=None, stage_map=None):
+    def fake_flatten_results(
+        report_results,
+        manager_summary,
+        manager_summary_cmp=None,
+        stage_map=None,
+        lost_deals_analysis=None,
+    ):
         xlsx_path.write_bytes(b"xlsx")
+        assert lost_deals_analysis is None
         return xlsx_path
 
     def fake_publish_latest_report(json_path, xlsx_out):
@@ -46,17 +60,18 @@ def test_write_sync_report_writes_json_and_returns_xlsx(monkeypatch, tmp_path):
     assert '"deal_id": "10"' in json_path.read_text(encoding="utf-8")
 
 
-def test_finalize_sync_report_orchestrates_final_steps(monkeypatch, tmp_path):
+@pytest.mark.asyncio
+async def test_finalize_sync_report_orchestrates_final_steps(monkeypatch, tmp_path):
     rows = [{"deal_id": "10", "manager_id": 5, "overall_score": 80}]
     json_path = tmp_path / "out.json"
     xlsx_path = tmp_path / "out.xlsx"
     calls = []
 
-    def fake_enrich_manager_names(api, results):
+    async def fake_enrich_manager_names(api, results):
         calls.append("names")
         results[0]["manager_name"] = "Иван Иванов"
 
-    def fake_apply_stage_context(api, results, kpi, kpi_cmp):
+    async def fake_apply_stage_context(api, results, kpi, kpi_cmp, vibe=None, args=None):
         calls.append("stage")
         return {"NEW": "Новая"}
 
@@ -64,8 +79,9 @@ def test_finalize_sync_report_orchestrates_final_steps(monkeypatch, tmp_path):
         calls.append("retry")
         return list(results) + [{"deal_id": "source"}]
 
-    def fake_write_sync_report(final_results, stage_map, kpi_cmp):
+    def fake_write_sync_report(final_results, stage_map, kpi_cmp, lost_deals_analysis=None):
         calls.append(("write", len(final_results), stage_map))
+        assert lost_deals_analysis == {"rows": [], "summary_rows": [], "action_rows": []}
         json_path.write_text("[]", encoding="utf-8")
         xlsx_path.write_bytes(b"xlsx")
         return json_path, xlsx_path
@@ -80,7 +96,12 @@ def test_finalize_sync_report_orchestrates_final_steps(monkeypatch, tmp_path):
     )
     monkeypatch.setattr("pipelines.finalization.cleanup_chrome_tmp_if_needed", lambda args: calls.append("cleanup"))
 
-    output = finalize_sync_report(
+    async def fake_lost_deals_analysis(**kwargs):
+        return {"rows": [], "summary_rows": [], "action_rows": []}
+
+    monkeypatch.setattr("pipelines.finalization.build_lost_deals_analysis", fake_lost_deals_analysis)
+
+    output = await finalize_sync_report(
         api=object(),
         args=SimpleNamespace(cleanup_chrome_tmp_days=0),
         results=rows,

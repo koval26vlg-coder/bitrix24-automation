@@ -1,5 +1,5 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
+import asyncio
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -10,12 +10,13 @@ from pipelines.stages import safe_int
 FIRST_RESPONSE_SLA_HOURS = 0.5
 
 
-def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
-    return api.call("crm.activity.get", {"id": int(activity_id)}).get("result", {}) or {}
+async def activity_get(api: Bitrix24API, activity_id: int) -> Dict[str, Any]:
+    res = await api.call("crm.activity.get", {"id": int(activity_id)})
+    return res.get("result", {}) or {}
 
 
-def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict[str, Any]]:
-    res = api.call(
+async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict[str, Any]]:
+    res = await api.call(
         "crm.activity.list",
         {
             "filter": {"OWNER_TYPE_ID": 2, "OWNER_ID": str(deal_id), "TYPE_ID": 2, "PROVIDER_ID": "VOXIMPLANT_CALL"},
@@ -39,27 +40,29 @@ def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> List[Dict[str, 
     return res.get("result", []) or []
 
 
-def user_profile(api: Bitrix24API, user_id: Any, cache: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
+async def user_profile(api: Bitrix24API, user_id: Any, cache: Dict[int, Dict[str, Any]]) -> Dict[str, Any]:
     uid = safe_int(user_id)
     if uid is None:
         return {}
     if uid in cache:
         return cache[uid]
     try:
-        arr = api.call("user.get", {"ID": int(uid)}).get("result") or []
+        res = await api.call("user.get", {"ID": int(uid)})
+        arr = res.get("result") or []
         cache[uid] = arr[0] if arr and isinstance(arr[0], dict) else {}
     except Exception:
         cache[uid] = {}
     return cache[uid]
 
 
-def load_department_chain(api: Bitrix24API, department_ids: List[Any], cache: Dict[int, Dict[str, Any]]) -> None:
+async def load_department_chain(api: Bitrix24API, department_ids: List[Any], cache: Dict[int, Dict[str, Any]]) -> None:
     pending = {int(x) for x in [safe_int(v) for v in department_ids] if x is not None and int(x) > 0 and int(x) not in cache}
     while pending:
         current = sorted(pending)
         pending.clear()
         try:
-            rows = api.call("department.get", {"ID": current}).get("result") or []
+            res = await api.call("department.get", {"ID": current})
+            rows = res.get("result") or []
         except Exception:
             rows = []
         for row in rows:
@@ -87,13 +90,13 @@ def department_is_call_center(department_id: Any, cache: Dict[int, Dict[str, Any
     return False
 
 
-def is_call_center_operator(
+async def is_call_center_operator(
     api: Bitrix24API,
     user_id: Any,
     user_cache: Dict[int, Dict[str, Any]],
     department_cache: Dict[int, Dict[str, Any]],
 ) -> bool:
-    user = user_profile(api, user_id, user_cache)
+    user = await user_profile(api, user_id, user_cache)
     if not user:
         return False
     position = str(user.get("WORK_POSITION") or "").lower()
@@ -102,11 +105,11 @@ def is_call_center_operator(
     departments = user.get("UF_DEPARTMENT") or []
     if not isinstance(departments, list):
         departments = [departments]
-    load_department_chain(api, departments, department_cache)
+    await load_department_chain(api, departments, department_cache)
     return any(department_is_call_center(dept_id, department_cache) for dept_id in departments)
 
 
-def split_call_center_operator_activities(
+async def split_call_center_operator_activities(
     api: Bitrix24API,
     activities: List[Dict[str, Any]],
     user_cache: Dict[int, Dict[str, Any]],
@@ -114,31 +117,49 @@ def split_call_center_operator_activities(
 ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
     kept: List[Dict[str, Any]] = []
     skipped: List[Dict[str, Any]] = []
+    
+    # Мы можем распараллелить проверку операторов
+    tasks = []
     for act in activities:
         responsible_id = act.get("RESPONSIBLE_ID") or act.get("AUTHOR_ID")
-        if is_call_center_operator(api, responsible_id, user_cache, department_cache):
+        tasks.append(is_call_center_operator(api, responsible_id, user_cache, department_cache))
+    
+    results = await asyncio.gather(*tasks)
+    
+    for act, is_cc in zip(activities, results):
+        if is_cc:
             skipped.append(act)
         else:
             kept.append(act)
+            
     return kept, skipped
 
 
-def user_name_map(api: Bitrix24API, user_ids: List[int]) -> Dict[int, str]:
+async def user_name_map(api: Bitrix24API, user_ids: List[int]) -> Dict[int, str]:
     out: Dict[int, str] = {}
-    for uid in sorted(set(user_ids)):
-        try:
-            arr = api.call("user.get", {"ID": int(uid)}).get("result") or []
-            if arr and isinstance(arr[0], dict):
-                u = arr[0]
-                out[int(uid)] = f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() or str(uid)
-        except Exception:
+    tasks = []
+    sorted_uids = sorted(set(user_ids))
+    for uid in sorted_uids:
+        tasks.append(api.call("user.get", {"ID": int(uid)}))
+    
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    
+    for uid, res in zip(sorted_uids, results):
+        if isinstance(res, Exception):
+            out[int(uid)] = str(uid)
+            continue
+        arr = res.get("result") or []
+        if arr and isinstance(arr[0], dict):
+            u = arr[0]
+            out[int(uid)] = f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() or str(uid)
+        else:
             out[int(uid)] = str(uid)
     return out
 
 
-def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> List[str]:
+async def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> List[str]:
     try:
-        res = api.call("crm.timeline.comment.list", {"filter": {"ENTITY_TYPE": "deal", "ENTITY_ID": int(deal_id)}})
+        res = await api.call("crm.timeline.comment.list", {"filter": {"ENTITY_TYPE": "deal", "ENTITY_ID": int(deal_id)}})
         rows = res.get("result", []) or []
         comments: List[str] = []
         for r in rows:

@@ -15,9 +15,11 @@ from logging_setup import get_logger
 logger = get_logger(__name__)
 
 
-def reevaluate_report(args: Any, kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]]) -> Tuple[int, Path, Path]:
+async def reevaluate_report(
+    args: Any, kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]]
+) -> Tuple[int, Path, Path]:
     rows = load_report_json(args.reevaluate_from)
-    recalculated = [recompute_existing_row(row, kpi, kpi_cmp) for row in rows]
+    recalculated = [await recompute_existing_row(row, kpi, kpi_cmp) for row in rows]
     manager_summary = build_manager_summary(recalculated)
     manager_summary_cmp = build_manager_summary(recalculated, score_key="overall_score_cmp") if kpi_cmp is not None else None
 

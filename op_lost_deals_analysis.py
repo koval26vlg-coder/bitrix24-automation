@@ -9,7 +9,6 @@ logger = get_logger(__name__)
 from bitrix24_api import Bitrix24API
 from datetime import datetime
 import pandas as pd
-from collections import Counter
 import config
 
 api = Bitrix24API()
@@ -168,24 +167,24 @@ if top_loser_manager:
     manager_count = manager_stats.loc[top_loser_manager, 'Количество']
     logger.info(f"\n1. MENEDZHER: {top_loser_manager}")
     logger.info(f"   - Bolshe vsego proigrannyh sdelok: {int(manager_count)}")
-    logger.info(f"   - Rekomendaciya: Provesti analiz prichin s menedzherom")
-    logger.info(f"   - Vozmozhno nuzhno obuchenie ili izmenit podkhod")
+    logger.info("   - Rekomendaciya: Provesti analiz prichin s menedzherom")
+    logger.info("   - Vozmozhno nuzhno obuchenie ili izmenit podkhod")
 
 if top_loser_source:
     source_count = source_stats.loc[top_loser_source, 'Количество']
     logger.info(f"\n2. ISTOCHNIK: {top_loser_source}")
     logger.info(f"   - Bolshe vsego proigryshey iz etogo istochnika: {int(source_count)}")
-    logger.info(f"   - Rekomendaciya: Proverit kachestvo lidov iz etogo istochnika")
-    logger.info(f"   - Vozmozhno nuzhna kvalifikaciya na ranney stadii")
+    logger.info("   - Rekomendaciya: Proverit kachestvo lidov iz etogo istochnika")
+    logger.info("   - Vozmozhno nuzhna kvalifikaciya na ranney stadii")
 
-logger.info(f"\n3. VREMYA ZHIZNI SDELOK:")
+logger.info("\n3. VREMYA ZHIZNI SDELOK:")
 logger.info(f"   - Srednee vremya do proigrysha: {avg_lifetime:.1f} dney")
 if avg_lifetime < 7:
-    logger.info(f"   - Sdelki proigryvayutsya bystro - vozmozhno nekachestvennye lidy")
+    logger.info("   - Sdelki proigryvayutsya bystro - vozmozhno nekachestvennye lidy")
 elif avg_lifetime > 90:
-    logger.info(f"   - Sdelki dolgo visyat - nuzhno uluchshit rabotu s vozrazheniyami")
+    logger.info("   - Sdelki dolgo visyat - nuzhno uluchshit rabotu s vozrazheniyami")
 else:
-    logger.info(f"   - Normalnoe vremya zhizni sdelok")
+    logger.info("   - Normalnoe vremya zhizni sdelok")
 
 # Экспорт
 timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')

@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -19,7 +18,7 @@ from pipelines.scoring import (
 
 
 def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
-    weights = kpi.get("deal_quality_weights", {})
+    weights: Dict[str, Any] = kpi.get("deal_quality_weights", {})
     has_contact = bool(deal.get("CONTACT_ID") or deal.get("COMPANY_ID"))
     has_amount = bool(str(deal.get("OPPORTUNITY") or "").strip() not in {"", "0", "0.00"})
     has_title = bool(str(deal.get("TITLE") or "").strip())
@@ -29,14 +28,19 @@ def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[st
     score += int(weights.get("has_amount", 25)) if has_amount else 0
     score += int(weights.get("has_title", 25)) if has_title else 0
     score += int(weights.get("has_comments", 25)) if has_next_step else 0
+    contact_text = "да" if has_contact else "нет"
+    amount_text = "да" if has_amount else "нет"
+    title_text = "да" if has_title else "нет"
+    next_step_text = "да" if has_next_step else "нет"
     details = (
-        f"Контакт/компания: {'да' if has_contact else 'нет'} ({int(weights.get('has_contact', 25))} баллов); "
-        f"сумма: {'да' if has_amount else 'нет'} ({int(weights.get('has_amount', 25))} баллов); "
-        f"название сделки: {'да' if has_title else 'нет'} ({int(weights.get('has_title', 25))} баллов); "
-        f"комментарии или следующий шаг в CRM: {'да' if has_next_step else 'нет'} ({int(weights.get('has_comments', 25))} баллов)."
+        f"Контакт/компания: {contact_text} ({int(weights.get('has_contact', 25))} баллов); "
+        f"сумма: {amount_text} ({int(weights.get('has_amount', 25))} баллов); "
+        f"название сделки: {title_text} ({int(weights.get('has_title', 25))} баллов); "
+        f"комментарии или следующий шаг в CRM: {next_step_text} "
+        f"({int(weights.get('has_comments', 25))} баллов)."
     )
     return {
-        "deal_quality_score": score,
+        "deal_quality_score": float(score),
         "deal_quality_details": details,
         "has_contact": has_contact,
         "has_amount": has_amount,
@@ -46,7 +50,7 @@ def compute_deal_quality(deal: Dict[str, Any], comments: List[str], kpi: Dict[st
 
 
 def crm_call_alignment(deal: Dict[str, Any], text: str, comments: List[str], kpi: Dict[str, Any]) -> Dict[str, Any]:
-    weights = kpi.get("alignment_weights", {})
+    weights: Dict[str, Any] = kpi.get("alignment_weights", {})
     transcript = (text or "").lower()
     title_words = [word for word in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", str(deal.get("TITLE") or "").lower())[:6]]
     title_hits = sum(1 for word in title_words if word in transcript)
@@ -65,14 +69,16 @@ def crm_call_alignment(deal: Dict[str, Any], text: str, comments: List[str], kpi
         if next_step_synced
         else "Нет: следующий шаг либо не прозвучал в разговоре, либо не зафиксирован в CRM. Это мешает контролировать дальнейшее действие по клиенту."
     )
+    amount_text = "да" if amount_mentioned else "нет"
+    next_step_text = "да" if next_step_synced else "нет"
     details = (
         "Связь звонка с CRM показывает, совпадает ли содержание разговора с данными сделки: "
-        f"сумма упомянута: {'да' if amount_mentioned else 'нет'}; "
-        f"следующий шаг синхронизирован с CRM: {'да' if next_step_synced else 'нет'}. "
+        f"сумма упомянута: {amount_text}; "
+        f"следующий шаг синхронизирован с CRM: {next_step_text}. "
         "Совпадения с названием сделки больше не выводятся в отчет как отдельная метрика."
     )
     return {
-        "alignment_score": align_score,
+        "alignment_score": float(align_score),
         "alignment_details": details,
         "title_mentions": title_hits,
         "amount_mentioned": amount_mentioned,
@@ -148,7 +154,9 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
         "objections_found": "\n".join(
             f"{o['objection_type']}: {o['objection_fragment']} ({o['objection_status']})" for o in objections
         ),
-        "unhandled_objections": "\n".join(f"{o['objection_type']}: {o['objection_fragment']}" for o in unhandled),
+        "unhandled_objections": "\n".join(
+            f"{o['objection_type']}: {o['objection_fragment']}" for o in unhandled
+        ),
         "objection_recommendations": "\n".join(dict.fromkeys(recommendations)),
         "improvement_moments": "\n".join(improvement_items),
         "transcript_marked": transcript_marked,
@@ -156,7 +164,7 @@ def analyze_transcript_improvements(text: str, row: Dict[str, Any]) -> Dict[str,
     }
 
 
-def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str], text: str, kpi: Dict[str, Any], suffix: str = "") -> None:
+async def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str], text: str, kpi: Dict[str, Any], suffix: str = "", codex_evaluator: Any = None) -> None:
     first_h = row.get("first_response_hours")
     first_m = row.get("first_response_minutes")
     sla_cfg = kpi.get("sla", {})
@@ -181,23 +189,29 @@ def apply_scores(row: Dict[str, Any], deal: Dict[str, Any], comments: List[str],
             continue
         row[f"{key}{suffix}"] = value
 
+    # Интеграция Codex
+    if codex_evaluator is not None and text and not suffix:
+        codex_res = await codex_evaluator.evaluate_transcript(text, {"deal_id": row.get("deal_id")})
+        row.update(codex_res)
+
     recalculate_overall_score(row, kpi, suffix=suffix)
 
 
-def finalize_transcript_analysis(
+async def finalize_transcript_analysis(
     row: Dict[str, Any],
     deal: Dict[str, Any],
-    comments: List[Dict[str, Any]],
+    comments: List[str],
     bitnewton_text: str,
     bitrix_text: str,
     kpi: Dict[str, Any],
     kpi_cmp: Optional[Dict[str, Any]],
+    codex_evaluator: Any = None,
 ) -> None:
     analysis_text = merged_transcript_text(bitnewton_text or "", bitrix_text or "")
     row["combined_transcript_text"] = analysis_text
-    apply_scores(row, deal, comments, analysis_text, kpi, suffix="")
+    await apply_scores(row, deal, comments, analysis_text, kpi, suffix="", codex_evaluator=codex_evaluator)
     if kpi_cmp is not None:
-        apply_scores(row, deal, comments, analysis_text, kpi_cmp, suffix="_cmp")
+        await apply_scores(row, deal, comments, analysis_text, kpi_cmp, suffix="_cmp", codex_evaluator=None)
         row["overall_score_delta"] = round(float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2)
     row.update(analyze_transcript_improvements(analysis_text, row))
     call_conclusion, call_recommendations = call_quality_conclusion(row)
@@ -218,7 +232,7 @@ def refresh_crm_scores_after_stage_metrics(rows: List[Dict[str, Any]], kpi: Dict
             row["overall_score_delta"] = round(float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2)
 
 
-def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+async def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_cmp: Optional[Dict[str, Any]] = None, codex_evaluator: Any = None) -> Dict[str, Any]:
     recalculated = dict(row)
     recalculated["kpi_profile"] = (kpi.get("profile") or {}).get("name")
     recalculated["kpi_version"] = (kpi.get("profile") or {}).get("version")
@@ -250,6 +264,10 @@ def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_cmp: Op
     for key, value in evaluate_call_text(analysis_text, kpi).items():
         recalculated[key] = value
 
+    if codex_evaluator is not None:
+        codex_res = await codex_evaluator.evaluate_transcript(analysis_text, {"deal_id": recalculated.get("deal_id")})
+        recalculated.update(codex_res)
+
     recalculated.update(evaluate_crm_checklist(recalculated, include_stage=True))
     recalculate_overall_score(recalculated, kpi)
 
@@ -260,7 +278,7 @@ def recompute_existing_row(row: Dict[str, Any], kpi: Dict[str, Any], kpi_cmp: Op
     recalculated["conversation_meaning"] = conversation_meaning(analysis_text, recalculated)
 
     if kpi_cmp is not None:
-        tmp = recompute_existing_row({**recalculated, "overall_score": None}, kpi_cmp, None)
+        tmp = await recompute_existing_row({**recalculated, "overall_score": None}, kpi_cmp, None, None)
         for key in ["call_quality_score", "deal_quality_score", "alignment_score", "crm_work_score", "overall_score"]:
             if key in tmp:
                 recalculated[f"{key}_cmp"] = tmp.get(key)

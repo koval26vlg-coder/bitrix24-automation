@@ -1,15 +1,11 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional
-
 from bitrix.api import Bitrix24API
-
 
 class FatalProcessingError(RuntimeError):
     pass
-
 
 @dataclass
 class ProcessingContext:
@@ -23,15 +19,15 @@ class ProcessingContext:
     ui_audio_dir: Path
     state_cache: Dict[str, Any]
     ui_browser_session: Any = None
+    vibe: Any = None
     asr_disabled_reason: Optional[str] = None
-
+    codex_evaluator: Any = None  # Добавляем CodexEvaluator
 
 @dataclass
 class DealProcessingResult:
     rows: List[Dict[str, Any]]
     ok: int
     err: int
-
 
 @dataclass
 class ProcessingRunResult:

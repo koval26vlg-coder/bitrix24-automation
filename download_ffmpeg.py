@@ -25,7 +25,7 @@ def download_ffmpeg():
     install_dir = Path("C:/ffmpeg")
     zip_file = "ffmpeg.zip"
 
-    logger.info(f"Skachivanie ffmpeg...")
+    logger.info("Skachivanie ffmpeg...")
     logger.info(f"URL: {url}")
 
     try:

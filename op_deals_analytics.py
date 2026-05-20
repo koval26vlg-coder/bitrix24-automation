@@ -101,7 +101,7 @@ date_30_days_ago = (datetime.now() - timedelta(days=30)).strftime('%Y-%m-%d')
 df['DATE_CREATE'] = pd.to_datetime(df['DATE_CREATE'], utc=True, errors='coerce')
 recent = df[df['DATE_CREATE'] >= date_30_days_ago]
 
-logger.info(f"\n=== ZA POSLEDNIE 30 DNEY ===")
+logger.info("\n=== ZA POSLEDNIE 30 DNEY ===")
 logger.info(f"Novyh sdelok: {len(recent)}")
 logger.info(f"Summa novyh: {recent['OPPORTUNITY'].sum():,.2f}")
 

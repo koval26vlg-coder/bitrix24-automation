@@ -1,4 +1,4 @@
-
+﻿import asyncio
 from logging_setup import get_logger
 
 logger = get_logger(__name__)
@@ -18,48 +18,45 @@ class ManagersCallStats:
     def __init__(self):
         self.api = Bitrix24API()
 
-    def get_managers_list(self) -> dict:
+    async def get_managers_list(self) -> dict:
         """Получить список менеджеров"""
-        result = self.api.call('user.get', {
-            'FILTER': {'ACTIVE': True}
-        })
+        result = await self.api.call("user.get", {"FILTER": {"ACTIVE": True}})
 
         managers = {}
-        for user in result.get('result', []):
-            managers[user['ID']] = {
-                'name': f"{user.get('NAME', '')} {user.get('LAST_NAME', '')}".strip(),
-                'email': user.get('EMAIL', '')
+        for user in result.get("result", []):
+            managers[user["ID"]] = {
+                "name": f"{user.get('NAME', '')} {user.get('LAST_NAME', '')}".strip(),
+                "email": user.get("EMAIL", ""),
             }
 
         return managers
 
-    def get_calls_stats(self, days: int = 30) -> list:
+    async def get_calls_stats(self, days: int = 30) -> list:
         """Получить статистику звонков за период"""
-        date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        # Получаем все звонки
-        result = self.api.call('voximplant.statistic.get', {
-            'FILTER': {
-                '>=CALL_START_DATE': date_from
-            }
+        # Получаем все звонки (voximplant.statistic.get может иметь много данных, 
+        # но в оригинале не было get_all, используем call)
+        result = await self.api.call("voximplant.statistic.get", {
+            "FILTER": {">=CALL_START_DATE": date_from}
         })
 
-        calls = result.get('result', [])
+        calls = result.get("result", [])
         return calls
 
-    def get_deals_stats(self, days: int = 30) -> list:
+    async def get_deals_stats(self, days: int = 30) -> list:
         """Получить статистику сделок за период"""
-        date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        date_from = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
 
-        result = self.api.call('crm.deal.list', {
-            'filter': {
-                '>=DATE_CREATE': date_from
-            },
-            'select': ['ID', 'TITLE', 'STAGE_ID', 'ASSIGNED_BY_ID',
-                      'OPPORTUNITY', 'DATE_CREATE', 'CLOSEDATE']
+        result = await self.api.call("crm.deal.list", {
+            "filter": {">=DATE_CREATE": date_from},
+            "select": [
+                "ID", "TITLE", "STAGE_ID", "ASSIGNED_BY_ID",
+                "OPPORTUNITY", "DATE_CREATE", "CLOSEDATE"
+            ],
         })
 
-        deals = result.get('result', [])
+        deals = result.get("result", [])
         return deals
 
     def analyze_manager_performance(self, calls: list, deals: list, managers: dict) -> pd.DataFrame:
@@ -69,81 +66,81 @@ class ManagersCallStats:
 
         # Анализ звонков
         for call in calls:
-            manager_id = str(call.get('PORTAL_USER_ID', ''))
+            manager_id = str(call.get("PORTAL_USER_ID", ""))
 
             if manager_id not in stats:
                 stats[manager_id] = {
-                    'manager_id': manager_id,
-                    'manager_name': managers.get(manager_id, {}).get('name', f'ID {manager_id}'),
-                    'total_calls': 0,
-                    'outgoing_calls': 0,
-                    'incoming_calls': 0,
-                    'total_duration': 0,
-                    'calls_with_records': 0,
-                    'successful_calls': 0,
-                    'failed_calls': 0
+                    "manager_id": manager_id,
+                    "manager_name": managers.get(manager_id, {}).get("name", f"ID {manager_id}"),
+                    "total_calls": 0,
+                    "outgoing_calls": 0,
+                    "incoming_calls": 0,
+                    "total_duration": 0,
+                    "calls_with_records": 0,
+                    "successful_calls": 0,
+                    "failed_calls": 0,
                 }
 
-            stats[manager_id]['total_calls'] += 1
+            stats[manager_id]["total_calls"] += 1
 
-            call_type = int(call.get('CALL_TYPE', 0))
+            call_type = int(call.get("CALL_TYPE", 0))
             if call_type == 1:  # Входящий
-                stats[manager_id]['incoming_calls'] += 1
+                stats[manager_id]["incoming_calls"] += 1
             elif call_type == 2:  # Исходящий
-                stats[manager_id]['outgoing_calls'] += 1
+                stats[manager_id]["outgoing_calls"] += 1
 
-            duration = int(call.get('CALL_DURATION', 0))
-            stats[manager_id]['total_duration'] += duration
+            duration = int(call.get("CALL_DURATION", 0))
+            stats[manager_id]["total_duration"] += duration
 
-            if call.get('RECORD_FILE_ID'):
-                stats[manager_id]['calls_with_records'] += 1
+            if call.get("RECORD_FILE_ID"):
+                stats[manager_id]["calls_with_records"] += 1
 
-            failed_code = int(call.get('CALL_FAILED_CODE', 200))
+            failed_code = int(call.get("CALL_FAILED_CODE", 200))
             if failed_code == 200:
-                stats[manager_id]['successful_calls'] += 1
+                stats[manager_id]["successful_calls"] += 1
             else:
-                stats[manager_id]['failed_calls'] += 1
+                stats[manager_id]["failed_calls"] += 1
 
         # Анализ сделок
         for deal in deals:
-            manager_id = str(deal.get('ASSIGNED_BY_ID', ''))
+            manager_id = str(deal.get("ASSIGNED_BY_ID", ""))
 
             if manager_id in stats:
-                if 'total_deals' not in stats[manager_id]:
-                    stats[manager_id]['total_deals'] = 0
-                    stats[manager_id]['deals_sum'] = 0
-                    stats[manager_id]['won_deals'] = 0
+                if "total_deals" not in stats[manager_id]:
+                    stats[manager_id]["total_deals"] = 0
+                    stats[manager_id]["deals_sum"] = 0
+                    stats[manager_id]["won_deals"] = 0
 
-                stats[manager_id]['total_deals'] += 1
+                stats[manager_id]["total_deals"] += 1
 
-                opportunity = float(deal.get('OPPORTUNITY', 0) or 0)
-                stats[manager_id]['deals_sum'] += opportunity
+                opportunity = float(deal.get("OPPORTUNITY", 0) or 0)
+                stats[manager_id]["deals_sum"] += opportunity
 
-                stage_id = deal.get('STAGE_ID', '')
-                if 'WON' in stage_id or 'SUCCESS' in stage_id:
-                    stats[manager_id]['won_deals'] += 1
+                stage_id = deal.get("STAGE_ID", "")
+                if "WON" in stage_id or "SUCCESS" in stage_id:
+                    stats[manager_id]["won_deals"] += 1
 
         # Преобразуем в DataFrame
         df = pd.DataFrame(list(stats.values()))
 
         if not df.empty:
             # Добавляем расчётные метрики
-            df['avg_call_duration'] = df['total_duration'] / df['total_calls']
-            df['success_rate'] = (df['successful_calls'] / df['total_calls'] * 100).round(1)
-            df['record_rate'] = (df['calls_with_records'] / df['total_calls'] * 100).round(1)
+            df["avg_call_duration"] = df["total_duration"] / df["total_calls"]
+            df["success_rate"] = (df["successful_calls"] / df["total_calls"] * 100).round(1)
+            df["record_rate"] = (df["calls_with_records"] / df["total_calls"] * 100).round(1)
 
-            if 'total_deals' in df.columns:
-                df['avg_deal_sum'] = (df['deals_sum'] / df['total_deals']).fillna(0).round(2)
-                df['conversion_rate'] = (df['won_deals'] / df['total_deals'] * 100).fillna(0).round(1)
+            if "total_deals" in df.columns:
+                df["avg_deal_sum"] = (df["deals_sum"] / df["total_deals"]).fillna(0).round(2)
+                df["conversion_rate"] = (df["won_deals"] / df["total_deals"] * 100).fillna(0).round(1)
             else:
-                df['total_deals'] = 0
-                df['deals_sum'] = 0
-                df['won_deals'] = 0
-                df['avg_deal_sum'] = 0
-                df['conversion_rate'] = 0
+                df["total_deals"] = 0
+                df["deals_sum"] = 0
+                df["won_deals"] = 0
+                df["avg_deal_sum"] = 0
+                df["conversion_rate"] = 0
 
             # Сортируем по количеству звонков
-            df = df.sort_values('total_calls', ascending=False)
+            df = df.sort_values("total_calls", ascending=False)
 
         return df
 
@@ -152,22 +149,22 @@ class ManagersCallStats:
 
         # Переименовываем колонки для читаемости
         columns_rename = {
-            'manager_name': 'Менеджер',
-            'total_calls': 'Всего звонков',
-            'outgoing_calls': 'Исходящих',
-            'incoming_calls': 'Входящих',
-            'total_duration': 'Общая длительность (сек)',
-            'avg_call_duration': 'Средняя длительность (сек)',
-            'calls_with_records': 'Звонков с записью',
-            'record_rate': 'Процент записей (%)',
-            'successful_calls': 'Успешных звонков',
-            'success_rate': 'Процент успеха (%)',
-            'failed_calls': 'Неудачных звонков',
-            'total_deals': 'Всего сделок',
-            'deals_sum': 'Сумма сделок',
-            'avg_deal_sum': 'Средняя сумма сделки',
-            'won_deals': 'Выигранных сделок',
-            'conversion_rate': 'Конверсия (%)'
+            "manager_name": "Менеджер",
+            "total_calls": "Всего звонков",
+            "outgoing_calls": "Исходящих",
+            "incoming_calls": "Входящих",
+            "total_duration": "Общая длительность (сек)",
+            "avg_call_duration": "Средняя длительность (сек)",
+            "calls_with_records": "Звонков с записью",
+            "record_rate": "Процент записей (%)",
+            "successful_calls": "Успешных звонков",
+            "success_rate": "Процент успеха (%)",
+            "failed_calls": "Неудачных звонков",
+            "total_deals": "Всего сделок",
+            "deals_sum": "Сумма сделок",
+            "avg_deal_sum": "Средняя сумма сделки",
+            "won_deals": "Выигранных сделок",
+            "conversion_rate": "Конверсия (%)",
         }
 
         df_export = df.copy()
@@ -176,69 +173,81 @@ class ManagersCallStats:
 
         # Округляем числа
         for col in df_export.columns:
-            if df_export[col].dtype in ['float64', 'float32']:
+            if df_export[col].dtype in ["float64", "float32"]:
                 df_export[col] = df_export[col].round(2)
 
-        df_export.to_excel(filename, index=False, engine='openpyxl')
-        logger.info(f"[OK] Otchet sohranen: {filename}")
+        df_export.to_excel(filename, index=False, engine="openpyxl")
+        logger.info(f"[OK] Отчет сохранен: {filename}")
 
 
-def main():
+async def main():
     logger.info("=== STATISTIKA ZVONKOV MENEDZHEROV ===\n")
 
     stats = ManagersCallStats()
 
-    if not stats.api.test_connection():
-        return
+    async with stats.api as api:
+        if not await api.test_connection():
+            return
 
-    # Выбор периода
-    logger.info("Vyberte period:")
-    logger.info("1. Poslednie 7 dney")
-    logger.info("2. Poslednie 30 dney")
-    logger.info("3. Poslednie 90 dney")
+        # Выбор периода
+        logger.info("Выберите период:")
+        logger.info("1. Последние 7 дней")
+        logger.info("2. Последние 30 дней")
+        logger.info("3. Последние 90 дней")
 
-    choice = input("\nVash vybor (1-3): ").strip()
+        # В асинхронном режиме input() блокирует поток, но для CLI это допустимо
+        # В идеале использовать aioconsole, но оставим как есть для минимизации зависимостей
+        choice = input("\nВаш выбор (1-3): ").strip()
 
-    days_map = {'1': 7, '2': 30, '3': 90}
-    days = days_map.get(choice, 30)
+        days_map = {"1": 7, "2": 30, "3": 90}
+        days = days_map.get(choice, 30)
 
-    logger.info(f"\nPoluchenie dannyh za poslednie {days} dney...")
+        logger.info(f"\nПолучение данных за последние {days} дней...")
 
-    # Получаем данные
-    managers = stats.get_managers_list()
-    logger.info(f"Naydeno menedzherov: {len(managers)}")
+        # Получаем данные параллельно
+        managers_task = asyncio.create_task(stats.get_managers_list())
+        calls_task = asyncio.create_task(stats.get_calls_stats(days))
+        deals_task = asyncio.create_task(stats.get_deals_stats(days))
 
-    calls = stats.get_calls_stats(days)
-    logger.info(f"Naydeno zvonkov: {len(calls)}")
+        managers, calls, deals = await asyncio.gather(managers_task, calls_task, deals_task)
 
-    deals = stats.get_deals_stats(days)
-    logger.info(f"Naydeno sdelok: {len(deals)}")
+        logger.info(f"Найдено менеджеров: {len(managers)}")
+        logger.info(f"Найдено звонков: {len(calls)}")
+        logger.info(f"Найдено сделок: {len(deals)}")
 
-    # Анализируем
-    logger.info("\nAnaliz effektivnosti...")
-    df = stats.analyze_manager_performance(calls, deals, managers)
+        # Анализируем
+        logger.info("\nАнализ эффективности...")
+        df = stats.analyze_manager_performance(calls, deals, managers)
 
-    if df.empty:
-        logger.info("[INFO] Net dannyh dlya analiza")
-        return
+        if df.empty:
+            logger.info("[INFO] Нет данных для анализа")
+            return
 
-    # Выводим топ-5
-    logger.info("\n=== TOP-5 MENEDZHEROV PO KOLICHESTVU ZVONKOV ===")
-    logger.info(df[['manager_name', 'total_calls', 'avg_call_duration', 'success_rate']].head(5).to_string(index=False))
+        # Выводим топ-5
+        logger.info("\n=== TOP-5 MENEDZHEROV PO KOLICHESTVU ZVONKOV ===")
+        logger.info(
+            df[["manager_name", "total_calls", "avg_call_duration", "success_rate"]]
+            .head(5)
+            .to_string(index=False)
+        )
 
-    if 'total_deals' in df.columns:
-        logger.info("\n=== TOP-5 MENEDZHEROV PO SDELKAM ===")
-        top_deals = df[df['total_deals'] > 0].sort_values('deals_sum', ascending=False)
-        if not top_deals.empty:
-            logger.info(top_deals[['manager_name', 'total_deals', 'deals_sum', 'conversion_rate']].head(5).to_string(index=False))
+        if "total_deals" in df.columns:
+            logger.info("\n=== TOP-5 MENEDZHEROV PO SDELKAM ===")
+            top_deals = df[df["total_deals"] > 0].sort_values("deals_sum", ascending=False)
+            if not top_deals.empty:
+                logger.info(
+                    top_deals[["manager_name", "total_deals", "deals_sum", "conversion_rate"]]
+                    .head(5)
+                    .to_string(index=False)
+                )
 
-    # Экспорт
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-    filename = f"{config.REPORTS_DIR}/managers_call_stats_{days}days_{timestamp}.xlsx"
+        # Экспорт
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        filename = f"{config.REPORTS_DIR}/managers_call_stats_{days}days_{timestamp}.xlsx"
 
-    stats.export_to_excel(df, filename)
-    logger.info(f"\n[OK] Polnyy otchet sohranen v: {filename}")
+        stats.export_to_excel(df, filename)
+        logger.info(f"\n[OK] Полный отчет сохранен в: {filename}")
 
 
-if __name__ == '__main__':
-    main()
+if __name__ == "__main__":
+    asyncio.run(main())

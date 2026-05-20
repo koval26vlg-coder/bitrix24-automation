@@ -1,5 +1,4 @@
-from __future__ import annotations
-
+﻿from __future__ import annotations
 import html
 import shutil
 from datetime import datetime
@@ -48,7 +47,7 @@ def parse_audio_source_dirs(values: Any) -> List[Path]:
     raw_values = values if isinstance(values, list) else ([values] if values else [])
     for raw in raw_values:
         for part in str(raw or "").split(";"):
-            text = part.strip().strip('"')
+            text = part.strip().strip("\"")
             if text:
                 out.append(Path(text))
     return out
@@ -124,7 +123,7 @@ def find_local_audio_source(
     return ranked[0][2]
 
 
-def download_audio_for_call(
+async def download_audio_for_call(
     *,
     api: Bitrix24API,
     args: Any,
@@ -136,8 +135,10 @@ def download_audio_for_call(
     audio_dir: Path,
     ui_audio_dir: Path,
     ui_browser_session: Any = None,
+    vibe: Any = None,
 ) -> Tuple[Path, Any]:
-    rr = resolve_call_recording(api, call_id=call_id, activity_id=safe_int(activity.get("ID")))
+    # resolve_call_recording должен быть асинхронным
+    rr = await resolve_call_recording(api, call_id=call_id, activity_id=safe_int(activity.get("ID")))
     row["disk_file_id"] = rr.disk_file_id
     row["recording_diagnostics"] = rr.diagnostics
     candidates = rr.candidates
@@ -153,72 +154,104 @@ def download_audio_for_call(
         disk_file_name=(rr.diagnostics or {}).get("disk_file_name"),
     )
     out_suffix = local_source.suffix if local_source else ".mp3"
-    out_path = audio_dir / f"deal{deal_id}_act{activity.get('ID')}_{row.get('disk_file_id')}_{ts}{out_suffix}"
+    activity_id = activity.get("ID")
+    disk_file_id = row.get("disk_file_id")
+    out_path = audio_dir / f"deal{deal_id}_act{activity_id}_{disk_file_id}_{ts}{out_suffix}"
+    
     if local_source:
         out_path.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(local_source, out_path)
         row["local_audio_source_used"] = True
         row["local_audio_source_path"] = str(local_source)
-        logger.info(f"[AUDIO] Использую локальный файл: activity_id={row.get('activity_id')} file={local_source}")
+        logger.info(
+            f"[AUDIO] Использую локальный файл: "
+            f"activity_id={row.get('activity_id')} file={local_source}"
+        )
     else:
         row["local_audio_source_used"] = False
-        if not candidates:
+        if vibe is not None and row.get("disk_file_id") and bool(getattr(args, "vibecode_audio_download", True)):
+            try:
+                # vibe пока синхронный
+                vibe.download_file(int(row["disk_file_id"]), out_path)
+                row["vibecode_download_used"] = True
+                row["download_url"] = f"vibecode:/v1/files/{row['disk_file_id']}/download"
+                logger.info(
+                    f"[VIBECODE] Скачал аудио через /v1/files/{row['disk_file_id']}/download: "
+                    f"activity_id={row.get('activity_id')}"
+                )
+            except Exception as e:
+                row["vibecode_download_error"] = str(e)
+                logger.warning(f"[WARN] VibeCode file download не сработал, fallback на REST/UI: {e}")
+        
+        if out_path.exists() and out_path.stat().st_size > 0:
+            pass
+        elif not candidates:
             raise RuntimeError("Не нашёл URL кандидаты для скачивания (resolver не смог), и локальный аудиофайл тоже не найден.")
-        rest_timeout_sec = max(5, int(getattr(args, "rest_timeout_sec", 20) or 20))
-        dl = download_best_effort(candidates=candidates, out_path=out_path, timeout_sec=rest_timeout_sec, retries=0)
-        if not dl.ok or not dl.path:
-            row["download_attempts"] = [a.__dict__ for a in dl.attempts]
-            if args.ui_download:
-                try:
-                    from ui_audio_downloader import UiBrowserSession
+        else:
+            rest_timeout_sec = max(5, int(getattr(args, "rest_timeout_sec", 20) or 20))
+            # download_best_effort должен поддерживать асинхронность или вызываться через run_in_executor
+            dl = await download_best_effort(candidates=candidates, out_path=out_path, timeout_sec=rest_timeout_sec, retries=0)
+            if not dl.ok or not dl.path:
+                row["download_attempts"] = [a.__dict__ for a in dl.attempts]
+                if args.ui_download:
+                    try:
+                        from ui_audio_downloader import UiBrowserSession
 
-                    ui_res = None
-                    ui_errors: List[str] = []
-                    mode = str(getattr(args, "ui_download_mode", "auto") or "auto")
-                    browser = str(getattr(args, "ui_browser", "chrome"))
-                    ui_timeout_sec = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
-                    browser_profile_directory = str(getattr(args, "browser_profile_directory", "Default") or "Default")
-                    if ui_browser_session is None:
-                        ui_browser_session = UiBrowserSession(
-                            downloads_dir=ui_audio_dir,
-                            chrome_profile_dir=args.chrome_profile_dir,
-                            browser=browser,
-                            browser_profile_directory=browser_profile_directory,
-                        )
-
-                    if mode in {"direct", "auto"}:
-                        for candidate in [html.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]:
-                            logger.info(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}")
-                            ui_res = ui_browser_session.download_url(
-                                candidate,
-                                timeout_sec=ui_timeout_sec,
-                                referer_url=row["deal_url"],
+                        ui_res = None
+                        ui_errors: List[str] = []
+                        mode = str(getattr(args, "ui_download_mode", "auto") or "auto")
+                        browser = str(getattr(args, "ui_browser", "chrome"))
+                        ui_timeout_sec = max(5, int(getattr(args, "ui_timeout_sec", 20) or 20))
+                        browser_profile_directory = str(getattr(args, "browser_profile_directory", "Default") or "Default")
+                        if ui_browser_session is None:
+                            ui_browser_session = UiBrowserSession(
+                                downloads_dir=ui_audio_dir,
+                                chrome_profile_dir=args.chrome_profile_dir,
+                                browser=browser,
+                                browser_profile_directory=browser_profile_directory,
                             )
-                            if ui_res.ok and ui_res.path:
-                                break
-                            ui_errors.append(f"url={candidate}: {ui_res.error if ui_res else 'no result'}")
 
-                    if (ui_res is None or not ui_res.ok) and mode in {"timeline", "auto"}:
-                        logger.info(f"[UI] Пробую таймлайн сделки через {browser}, таймаут {ui_timeout_sec} сек.: activity_id={row.get('activity_id')}")
-                        ui_res = ui_browser_session.download_call_from_deal_timeline(
-                            row["deal_url"],
-                            int(row.get("activity_id") or 0),
-                            timeout_sec=ui_timeout_sec,
-                        )
-                        if not ui_res.ok:
-                            ui_errors.append(f"timeline activity_id={row.get('activity_id')}: {ui_res.error}")
+                        if mode in {"direct", "auto"}:
+                            for candidate in [html.unescape(c).strip() for c in candidates if isinstance(c, str) and c.startswith("http")]:
+                                logger.info(f"[UI] Пробую ссылку активности через {browser}, таймаут {ui_timeout_sec} сек.: {candidate}")
+                                ui_res = ui_browser_session.download_url(
+                                    candidate,
+                                    timeout_sec=ui_timeout_sec,
+                                    referer_url=row["deal_url"],
+                                )
+                                if ui_res.ok and ui_res.path:
+                                    break
+                                ui_error = ui_res.error if ui_res else "no result"
+                                ui_errors.append(f"url={candidate}: {ui_error}")
 
-                    row["ui_download_errors"] = ui_errors
-                    if ui_res is None or not ui_res.ok or not ui_res.path:
-                        raise RuntimeError("; ".join(ui_errors) or (ui_res.error if ui_res else "UI download failed"))
-                    out_path.parent.mkdir(parents=True, exist_ok=True)
-                    out_path.write_bytes(Path(ui_res.path).read_bytes())
-                    row["ui_download_used"] = True
-                    row["ui_download_path"] = str(ui_res.path)
-                except Exception as e:
-                    raise RuntimeError(f"Не удалось скачать аудио (REST+UI): {dl.error}; UI: {e}")
-            else:
-                raise RuntimeError(f"Не удалось скачать аудио: {dl.error}")
+                        if (ui_res is None or not ui_res.ok) and mode in {"timeline", "auto"}:
+                            logger.info(
+                                f"[UI] Пробую таймлайн сделки через {browser}, "
+                                f"таймаут {ui_timeout_sec} сек.: "
+                                f"activity_id={row.get('activity_id')}"
+                            )
+                            ui_res = ui_browser_session.download_call_from_deal_timeline(
+                                row["deal_url"],
+                                int(row.get("activity_id") or 0),
+                                timeout_sec=ui_timeout_sec,
+                            )
+                            if not ui_res.ok:
+                                ui_errors.append(
+                                    f"timeline activity_id={row.get('activity_id')}: {ui_res.error}"
+                                )
+
+                        row["ui_download_errors"] = ui_errors
+                        if ui_res is None or not ui_res.ok or not ui_res.path:
+                            raise RuntimeError("; ".join(ui_errors) or (ui_res.error if ui_res else "UI download failed"))
+                        out_path.parent.mkdir(parents=True, exist_ok=True)
+                        out_path.write_bytes(Path(ui_res.path).read_bytes())
+                        row["ui_download_used"] = True
+                        row["ui_download_path"] = str(ui_res.path)
+                    except Exception as e:
+                        raise RuntimeError(f"Не удалось скачать аудио (REST+UI): {dl.error}; UI: {e}")
+                else:
+                    raise RuntimeError(f"Не удалось скачать аудио: {dl.error}")
+    
     row["audio_path"] = str(out_path)
     row["audio_size_bytes"] = int(out_path.stat().st_size) if out_path.exists() else None
     bad = validate_audio_file(out_path)

@@ -10,10 +10,14 @@ import requests
 from dotenv import load_dotenv
 
 
-load_dotenv()
+load_dotenv(override=True)
 
 
 class BitNewtonError(RuntimeError):
+    pass
+
+
+class BitNewtonAuthError(BitNewtonError):
     pass
 
 
@@ -42,7 +46,7 @@ class BitNewtonASR:
     @staticmethod
     def _raise_for_auth_if_needed(status_code: int, body: str, where: str) -> None:
         if status_code in (401, 403):
-            raise BitNewtonError(
+            raise BitNewtonAuthError(
                 f"{where}: токен Bit.Newton истёк/неверный (HTTP {status_code}). "
                 f"Обнови BITNEWTON_TOKEN в .env и повтори. Ответ: {body[:300]}"
             )
@@ -83,6 +87,23 @@ class BitNewtonASR:
             self._raise_for_auth_if_needed(r.status_code, r.text, "ASR get_status")
             raise BitNewtonError(f"ASR get_status HTTP {r.status_code}: {r.text[:500]}")
         return r.json()
+
+    def validate_token(self) -> bool:
+        """
+        Быстрая проверка авторизации без отправки аудиофайла.
+        Любой ответ кроме 401/403 означает, что токен сервер принял, даже если task_id не существует.
+        """
+        url = f"{self.base_url}/get_status"
+        headers = {"token": self.token}
+        timeout_sec = min(int(self.timeout_sec or 120), 30)
+        r = self.session.get(
+            url,
+            headers=headers,
+            params={"task_id": "__token_check__"},
+            timeout=timeout_sec,
+        )
+        self._raise_for_auth_if_needed(r.status_code, r.text, "ASR token_check")
+        return True
 
     def get_file(self, task_id: str, file_type: Optional[str] = None) -> bytes:
         url = f"{self.base_url}/get_file"
@@ -131,5 +152,6 @@ def env_bitnewton_asr() -> Optional[BitNewtonASR]:
     token = os.getenv("BITNEWTON_TOKEN", "").strip()
     if not token:
         return None
-    return BitNewtonASR(base_url=base_url, token=token)
+    timeout_sec = int(os.getenv("BITNEWTON_HTTP_TIMEOUT_SEC", "300") or 300)
+    return BitNewtonASR(base_url=base_url, token=token, timeout_sec=timeout_sec)
 

@@ -97,23 +97,27 @@ def list_browser_profiles(browser_name: str) -> list[dict]:
 
 @st.cache_data(ttl=300)
 def fetch_active_users() -> list[dict]:
-    api = Bitrix24API()
-    users: list[dict] = []
-    try:
-        start = 0
-        while True:
-            res = run_async(api.call("user.get", {"FILTER": {"ACTIVE": True}, "start": start}))
-            chunk = res.get("result", []) or []
-            users.extend(chunk)
-            next_start = res.get("next")
-            if next_start is None:
-                break
-            try:
-                start = int(next_start)
-            except Exception:
-                break
-    finally:
-        run_async(api.aclose())
+    async def _load() -> list[dict]:
+        api = Bitrix24API()
+        users: list[dict] = []
+        try:
+            start = 0
+            while True:
+                res = await api.call("user.get", {"FILTER": {"ACTIVE": True}, "start": start})
+                chunk = res.get("result", []) or []
+                users.extend(chunk)
+                next_start = res.get("next")
+                if next_start is None:
+                    break
+                try:
+                    start = int(next_start)
+                except Exception:
+                    break
+        finally:
+            await api.aclose()
+        return users
+
+    users = run_async(_load())
     users.sort(key=lambda u: ((u.get("LAST_NAME") or "").lower(), (u.get("NAME") or "").lower()))
     return users
 
@@ -125,11 +129,14 @@ def user_fio(u: dict) -> str:
 
 @st.cache_data(ttl=300)
 def fetch_deal_categories() -> list[dict]:
-    api = Bitrix24API()
-    try:
-        return run_async(api.call("crm.dealcategory.list", {})).get("result", []) or []
-    finally:
-        run_async(api.aclose())
+    async def _load() -> list[dict]:
+        api = Bitrix24API()
+        try:
+            return (await api.call("crm.dealcategory.list", {})).get("result", []) or []
+        finally:
+            await api.aclose()
+
+    return run_async(_load())
 
 
 def stage_entity_id(category_id: int | None) -> str:
@@ -171,32 +178,33 @@ def fallback_stage_rows(category_ids: tuple[int | None, ...]) -> list[dict]:
 
 @st.cache_data(ttl=300)
 def fetch_deal_stages(category_ids: tuple[int | None, ...]) -> list[dict]:
-    api = Bitrix24API()
-    rows: list[dict] = []
-    seen: set[str] = set()
-    try:
-        for category_id in category_ids:
-            entity_id = stage_entity_id(category_id)
-            res = run_async(
-                api.call(
+    async def _load() -> list[dict]:
+        api = Bitrix24API()
+        rows: list[dict] = []
+        seen: set[str] = set()
+        try:
+            for category_id in category_ids:
+                entity_id = stage_entity_id(category_id)
+                res = await api.call(
                     "crm.status.list",
                     {"filter": {"ENTITY_ID": entity_id}, "order": {"SORT": "ASC"}},
                 )
-            )
-            for row in res.get("result") or []:
-                stage_id = str(row.get("STATUS_ID") or "").strip()
-                name = str(row.get("NAME") or stage_id).strip()
-                if not stage_id or stage_id in seen:
-                    continue
-                seen.add(stage_id)
-                try:
-                    sort = int(row.get("SORT") or 0)
-                except Exception:
-                    sort = 0
-                rows.append({"id": stage_id, "name": name, "sort": sort})
-    finally:
-        run_async(api.aclose())
+                for row in res.get("result") or []:
+                    stage_id = str(row.get("STATUS_ID") or "").strip()
+                    name = str(row.get("NAME") or stage_id).strip()
+                    if not stage_id or stage_id in seen:
+                        continue
+                    seen.add(stage_id)
+                    try:
+                        sort = int(row.get("SORT") or 0)
+                    except Exception:
+                        sort = 0
+                    rows.append({"id": stage_id, "name": name, "sort": sort})
+        finally:
+            await api.aclose()
+        return rows
 
+    rows = run_async(_load())
     if not rows:
         rows = fallback_stage_rows(category_ids)
     return sorted(rows, key=lambda r: (int(r.get("sort") or 0), str(r.get("name") or "")))
@@ -204,19 +212,20 @@ def fetch_deal_stages(category_ids: tuple[int | None, ...]) -> list[dict]:
 
 @st.cache_data(ttl=300)
 def fetch_lead_categories_new() -> list[dict]:
-    api = Bitrix24API()
-    try:
-        rows = run_async(
-            api.get_all(
+    async def _load() -> list[dict]:
+        api = Bitrix24API()
+        try:
+            return await api.get_all(
                 "lists.element.get",
                 {
                     "IBLOCK_TYPE_ID": "lists",
                     "IBLOCK_ID": LEAD_CATEGORY_NEW_IBLOCK_ID,
                 },
             )
-        )
-    finally:
-        run_async(api.aclose())
+        finally:
+            await api.aclose()
+
+    rows = run_async(_load())
     out: list[dict] = []
     for row in rows:
         category_id = str((row or {}).get("ID") or "").strip()

@@ -17,9 +17,10 @@ from vibecode_api import env_vibecode_client
 logger = get_logger(__name__)
 
 
-async def create_bitrix_api() -> Bitrix24API:
+async def create_bitrix_api(args: Any = None) -> Bitrix24API:
     """Создает и тестирует подключение к Bitrix24 API."""
-    api = Bitrix24API()
+    readonly = bool(getattr(args, "dry_run", False))
+    api = Bitrix24API(readonly=readonly)
     if not await api.test_connection():
         await api.aclose()
         raise SystemExit(1)
@@ -30,8 +31,12 @@ def create_vibecode_client(args: Any) -> Any:
     """Создает клиент VibeCode API, если это разрешено аргументами."""
     if not bool(getattr(args, "use_vibecode", True)):
         return None
+    readonly = bool(getattr(args, "dry_run", False))
     try:
+        from vibecode_api import env_vibecode_client
         vibe = env_vibecode_client()
+        if vibe:
+            vibe.readonly = readonly
     except Exception as e:
         logger.warning(f"[WARN] VibeCode API недоступен: {e}")
         return None

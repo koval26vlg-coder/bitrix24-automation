@@ -31,7 +31,7 @@ async def run_sync(args: Any) -> tuple[int, Path, Path]:
         return await reevaluate_report(args, kpi, kpi_cmp)
 
     # 3. Инициализация внешних сервисов
-    api = await create_bitrix_api()
+    api = await create_bitrix_api(args)
     vibe = create_vibecode_client(args)
     asr = create_bitnewton_asr(args)
 

@@ -142,6 +142,7 @@ class VibeCodeClient:
         base_url: str = VIBECODE_BASE_URL,
         timeout_sec: float = 30.0,
         max_attempts: int = 3,
+        readonly: bool = False,
     ):
         self.api_key = (api_key or "").strip()
         if not self.api_key:
@@ -149,10 +150,15 @@ class VibeCodeClient:
         self.base_url = base_url.rstrip("/")
         self.timeout_sec = float(timeout_sec or 30.0)
         self.max_attempts = max(1, int(max_attempts or 3))
+        self.readonly = readonly
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": self.api_key})
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
+        if self.readonly and method == "POST" and not path.endswith("/search"):
+            logger.info(f"[DRY-RUN] Пропущен вызов записи VibeCode: {method} {path}")
+            return {"success": True, "dry_run": True, "skipped": True}
+
         url = f"{self.base_url}{path if path.startswith('/') else '/' + path}"
         last_error = ""
         for attempt in range(1, self.max_attempts + 1):

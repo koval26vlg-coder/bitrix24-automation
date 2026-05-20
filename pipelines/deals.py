@@ -39,9 +39,17 @@ async def fetch_deals_by_filter(
                 "start": start,
             },
         )
-        chunk = res.get("result", []) or []
-        if not chunk:
+        chunk_raw = res.get("result", []) or []
+        if not chunk_raw:
             break
+
+        chunk = []
+        for d in chunk_raw:
+            try:
+                validated = BitrixDeal.model_validate(d).model_dump(by_alias=True)
+                chunk.append(validated)
+            except Exception as e:
+                logger.error(f"[ERROR] Ошибка валидации сделки {d.get('ID')}: {e}")
 
         remaining = max_items - len(deals)
         deals.extend(chunk[:remaining])
@@ -80,7 +88,12 @@ def normalize_deal_filter_dates(flt: dict[str, Any]) -> dict[str, Any]:
 
 async def deal_get(api: Bitrix24API, deal_id: str) -> dict[str, Any]:
     res = await api.call("crm.deal.get", {"id": int(deal_id)})
-    return res.get("result", {}) or {}
+    raw = res.get("result", {}) or {}
+    try:
+        return BitrixDeal.model_validate(raw).model_dump(by_alias=True, mode="json")
+    except Exception as e:
+        logger.error(f"[ERROR] Ошибка валидации сделки {deal_id}: {e}")
+        return raw
 
 
 def deal_id_from_report_row(row: dict[str, Any]) -> str | None:

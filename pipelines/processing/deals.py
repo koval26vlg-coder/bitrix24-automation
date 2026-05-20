@@ -18,6 +18,7 @@ from pipelines.processing.context import (
     ProcessingContext,
     ProcessingRunResult,
 )
+from pipelines.models import BitrixActivity, BitrixDeal
 from pipelines.stages import safe_int
 
 
@@ -207,9 +208,11 @@ async def process_deal(
     ok = 0
     err = 0
     try:
-        deal = await deal_task
+        deal_raw = await deal_task
+        deal = BitrixDeal.model_validate(deal_raw)
     except Exception as e:
         if not _is_missing_bitrix_deal_error(e):
+            logger.error(f"[ERROR] Ошибка валидации сделки {deal_id}: {e}")
             raise
         row = _build_missing_deal_row(
             ctx=ctx,
@@ -224,15 +227,17 @@ async def process_deal(
         return DealProcessingResult(rows=rows, ok=ok, err=err)
 
     comments = await fetch_timeline_comments(ctx.api, deal_id)
-    discipline = compute_discipline_metrics(deal, acts, ctx.kpi)
-    deal_quality = compute_deal_quality(deal, comments, ctx.kpi)
-    manager_id = safe_int(deal.get("ASSIGNED_BY_ID"))
+    # Используем model_dump(by_alias=True, mode="json") для совместимости с существующими функциями
+    deal_dict = deal.model_dump(by_alias=True, mode="json")
+    discipline = compute_discipline_metrics(deal_dict, acts, ctx.kpi)
+    deal_quality = compute_deal_quality(deal_dict, comments, ctx.kpi)
+    manager_id = deal.assigned_by_id
 
     if not acts:
         row = await process_no_calls_deal(
             ctx=ctx,
             deal_id=deal_id,
-            deal=deal,
+            deal=deal_dict,
             comments=comments,
             discipline=discipline,
             deal_quality=deal_quality,
@@ -245,17 +250,25 @@ async def process_deal(
         print(f"[NO CALLS] OK={base_ok + ok} ERR={base_err + err}", flush=True)
         return DealProcessingResult(rows=rows, ok=ok, err=err)
 
-    for activity_index, activity in enumerate(acts, 1):
+    for activity_index, activity_raw in enumerate(acts, 1):
+        try:
+            activity = BitrixActivity.model_validate(activity_raw)
+            activity_dict = activity.model_dump(by_alias=True, mode="json")
+        except Exception as e:
+            logger.error(f"[ERROR] Ошибка валидации звонка в сделке {deal_id}: {e}")
+            err += 1
+            continue
+
         row, success = await process_call(
             ctx=ctx,
             deal_id=deal_id,
-            deal=deal,
+            deal=deal_dict,
             comments=comments,
             discipline=discipline,
             deal_quality=deal_quality,
             manager_id=manager_id,
             call_center_acts=call_center_acts,
-            activity=activity,
+            activity=activity_dict,
             skipped_short_calls=len(skipped_short_acts),
         )
         if success:

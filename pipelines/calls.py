@@ -5,6 +5,7 @@ from datetime import datetime
 from typing import Any
 
 from bitrix.api import Bitrix24API
+from pipelines.models import BitrixActivity
 from pipelines.stages import safe_int
 
 FIRST_RESPONSE_SLA_HOURS = 0.5
@@ -12,7 +13,12 @@ FIRST_RESPONSE_SLA_HOURS = 0.5
 
 async def activity_get(api: Bitrix24API, activity_id: int) -> dict[str, Any]:
     res = await api.call("crm.activity.get", {"id": int(activity_id)})
-    return res.get("result", {}) or {}
+    raw = res.get("result", {}) or {}
+    try:
+        return BitrixActivity.model_validate(raw).model_dump(by_alias=True, mode="json")
+    except Exception as e:
+        logger.error(f"[ERROR] Ошибка валидации активности {activity_id}: {e}")
+        return raw
 
 
 async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> list[dict[str, Any]]:
@@ -42,7 +48,15 @@ async def list_deal_call_activities(api: Bitrix24API, deal_id: str) -> list[dict
             "start": 0,
         },
     )
-    return res.get("result", []) or []
+    raw_list = res.get("result", []) or []
+    out = []
+    for r in raw_list:
+        try:
+            validated = BitrixActivity.model_validate(r).model_dump(by_alias=True, mode="json")
+            out.append(validated)
+        except Exception as e:
+            logger.error(f"[ERROR] Ошибка валидации активности {r.get('ID')} в сделке {deal_id}: {e}")
+    return out
 
 
 async def user_profile(

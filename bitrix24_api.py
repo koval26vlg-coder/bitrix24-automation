@@ -11,11 +11,12 @@ logger = get_logger(__name__)
 
 
 class Bitrix24API:
-    def __init__(self, webhook_url: str | None = None):
+    def __init__(self, webhook_url: str | None = None, readonly: bool = False):
         self.webhook_url = webhook_url or config.BITRIX24_WEBHOOK
         if not self.webhook_url:
             raise ValueError("Webhook URL не настроен. Проверьте файл .env")
 
+        self.readonly = readonly
         self.client = httpx.AsyncClient(
             headers={"Content-Type": "application/json"},
             timeout=float(getattr(config, "BITRIX24_TIMEOUT_SEC", 30) or 30),
@@ -33,6 +34,19 @@ class Bitrix24API:
 
     async def call(self, method: str, params: dict[str, Any] = None) -> dict[str, Any]:
         """Асинхронный вызов метода Bitrix24 REST API"""
+        if self.readonly:
+            # Разрешаем только безопасные методы чтения. 
+            # batch может содержать записи, но мы полагаемся на то, что вызывающий код 
+            # также учитывает флаг dry_run. Централизованно блокируем самые опасные.
+            safe_methods = {
+                "profile", "crm.deal.get", "crm.deal.list", "crm.activity.get", 
+                "crm.activity.list", "crm.status.list", "crm.dealcategory.list",
+                "crm.stagehistory.list", "user.get", "disk.file.get", "disk.folder.getchildren"
+            }
+            if method not in safe_methods and not method.startswith("batch"):
+                logger.info(f"[DRY-RUN] Пропущен вызов записи Bitrix24: {method}")
+                return {"result": True, "dry_run": True, "skipped": True}
+
         url = f"{self.webhook_url}{method}"
 
         max_attempts = int(getattr(config, "BITRIX24_MAX_ATTEMPTS", 5) or 5)

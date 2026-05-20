@@ -6,6 +6,7 @@ logger = get_logger(__name__)
 Статистика звонков менеджеров с анализом эффективности (автоматический режим)
 """
 
+import asyncio
 from bitrix24_api import Bitrix24API
 from datetime import datetime, timedelta
 import pandas as pd
@@ -19,9 +20,9 @@ class ManagersCallStats:
     def __init__(self):
         self.api = Bitrix24API()
 
-    def get_managers_list(self) -> dict:
+    async def get_managers_list(self) -> dict:
         """Получить список менеджеров"""
-        result = self.api.call('user.get', {
+        result = await self.api.call('user.get', {
             'FILTER': {'ACTIVE': True}
         })
 
@@ -34,12 +35,12 @@ class ManagersCallStats:
 
         return managers
 
-    def get_calls_stats(self, days: int = 30) -> list:
+    async def get_calls_stats(self, days: int = 30) -> list:
         """Получить статистику звонков за период"""
         date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
         # Получаем все звонки
-        result = self.api.call('voximplant.statistic.get', {
+        result = await self.api.call('voximplant.statistic.get', {
             'FILTER': {
                 '>=CALL_START_DATE': date_from
             }
@@ -48,11 +49,11 @@ class ManagersCallStats:
         calls = result.get('result', [])
         return calls
 
-    def get_deals_stats(self, days: int = 30) -> list:
+    async def get_deals_stats(self, days: int = 30) -> list:
         """Получить статистику сделок за период"""
         date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-        result = self.api.call('crm.deal.list', {
+        result = await self.api.call('crm.deal.list', {
             'filter': {
                 '>=DATE_CREATE': date_from
             },
@@ -184,7 +185,7 @@ class ManagersCallStats:
         logger.info(f"[OK] Otchet sohranen: {filename}")
 
 
-def main():
+async def main():
     logger.info("=== STATISTIKA ZVONKOV MENEDZHEROV ===\n")
 
     # Параметр из командной строки или по умолчанию 30 дней
@@ -198,21 +199,23 @@ def main():
     logger.info(f"Period: poslednie {days} dney\n")
 
     stats = ManagersCallStats()
+    try:
+        if not await stats.api.test_connection():
+            return
 
-    if not stats.api.test_connection():
-        return
+        logger.info(f"Poluchenie dannyh za poslednie {days} dney...")
 
-    logger.info(f"Poluchenie dannyh za poslednie {days} dney...")
+        # Получаем данные
+        managers = await stats.get_managers_list()
+        logger.info(f"Naydeno menedzherov: {len(managers)}")
 
-    # Получаем данные
-    managers = stats.get_managers_list()
-    logger.info(f"Naydeno menedzherov: {len(managers)}")
+        calls = await stats.get_calls_stats(days)
+        logger.info(f"Naydeno zvonkov: {len(calls)}")
 
-    calls = stats.get_calls_stats(days)
-    logger.info(f"Naydeno zvonkov: {len(calls)}")
-
-    deals = stats.get_deals_stats(days)
-    logger.info(f"Naydeno sdelok: {len(deals)}")
+        deals = await stats.get_deals_stats(days)
+        logger.info(f"Naydeno sdelok: {len(deals)}")
+    finally:
+        await stats.api.aclose()
 
     # Анализируем
     logger.info("\nAnaliz effektivnosti...")
@@ -241,4 +244,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

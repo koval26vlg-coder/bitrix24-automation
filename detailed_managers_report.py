@@ -6,54 +6,57 @@ logger = get_logger(__name__)
 Детальный анализ эффективности менеджеров
 """
 
+import asyncio
 from bitrix24_api import Bitrix24API
 from datetime import datetime, timedelta
 import pandas as pd
 import config
 
 
-def main():
+async def main():
     logger.info("=== DETALNAYA STATISTIKA MENEDZHEROV ===\n")
 
     api = Bitrix24API()
+    try:
+        if not await api.test_connection():
+            return
 
-    if not api.test_connection():
-        return
+        days = 30
+        date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    days = 30
-    date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
+        # Получаем менеджеров
+        logger.info("Poluchenie spiska menedzherov...")
+        users_result = await api.call('user.get', {'FILTER': {'ACTIVE': True}})
+        users = {u['ID']: f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() for u in users_result.get('result', [])}
+        logger.info(f"Vsego aktivnyh polzovateley: {len(users)}\n")
 
-    # Получаем менеджеров
-    logger.info("Poluchenie spiska menedzherov...")
-    users_result = api.call('user.get', {'FILTER': {'ACTIVE': True}})
-    users = {u['ID']: f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() for u in users_result.get('result', [])}
-    logger.info(f"Vsego aktivnyh polzovateley: {len(users)}\n")
+        # Получаем звонки
+        logger.info("Poluchenie zvonkov...")
+        calls_result = await api.call('voximplant.statistic.get', {
+            'FILTER': {'>=CALL_START_DATE': date_from}
+        })
+        calls = calls_result.get('result', [])
+        logger.info(f"Vsego zvonkov: {len(calls)}\n")
 
-    # Получаем звонки
-    logger.info("Poluchenie zvonkov...")
-    calls_result = api.call('voximplant.statistic.get', {
-        'FILTER': {'>=CALL_START_DATE': date_from}
-    })
-    calls = calls_result.get('result', [])
-    logger.info(f"Vsego zvonkov: {len(calls)}\n")
+        # Получаем сделки
+        logger.info("Poluchenie sdelok...")
+        deals_result = await api.call('crm.deal.list', {
+            'filter': {'>=DATE_CREATE': date_from},
+            'select': ['ID', 'TITLE', 'STAGE_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
+        })
+        deals = deals_result.get('result', [])
+        logger.info(f"Vsego sdelok: {len(deals)}\n")
 
-    # Получаем сделки
-    logger.info("Poluchenie sdelok...")
-    deals_result = api.call('crm.deal.list', {
-        'filter': {'>=DATE_CREATE': date_from},
-        'select': ['ID', 'TITLE', 'STAGE_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
-    })
-    deals = deals_result.get('result', [])
-    logger.info(f"Vsego sdelok: {len(deals)}\n")
-
-    # Получаем лиды
-    logger.info("Poluchenie lidov...")
-    leads_result = api.call('crm.lead.list', {
-        'filter': {'>=DATE_CREATE': date_from},
-        'select': ['ID', 'TITLE', 'STATUS_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
-    })
-    leads = leads_result.get('result', [])
-    logger.info(f"Vsego lidov: {len(leads)}\n")
+        # Получаем лиды
+        logger.info("Poluchenie lidov...")
+        leads_result = await api.call('crm.lead.list', {
+            'filter': {'>=DATE_CREATE': date_from},
+            'select': ['ID', 'TITLE', 'STATUS_ID', 'ASSIGNED_BY_ID', 'OPPORTUNITY']
+        })
+        leads = leads_result.get('result', [])
+        logger.info(f"Vsego lidov: {len(leads)}\n")
+    finally:
+        await api.aclose()
 
     # Анализ по менеджерам
     manager_stats = {}
@@ -145,4 +148,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

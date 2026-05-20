@@ -6,30 +6,33 @@ logger = get_logger(__name__)
 Детальный анализ звонков с разбивкой по дням и клиентам
 """
 
+import asyncio
 from bitrix24_api import Bitrix24API
 from datetime import datetime, timedelta
 import pandas as pd
 import config
 
 
-def main():
+async def main():
     logger.info("=== DETALNAYA STATISTIKA ZVONKOV ===\n")
 
     api = Bitrix24API()
+    try:
+        if not await api.test_connection():
+            return
 
-    if not api.test_connection():
-        return
+        days = 30
+        date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
 
-    days = 30
-    date_from = (datetime.now() - timedelta(days=days)).strftime('%Y-%m-%d')
-
-    # Получаем звонки
-    logger.info(f"Poluchenie zvonkov za poslednie {days} dney...")
-    calls_result = api.call('voximplant.statistic.get', {
-        'FILTER': {'>=CALL_START_DATE': date_from}
-    })
-    calls = calls_result.get('result', [])
-    logger.info(f"Vsego zvonkov: {len(calls)}\n")
+        # Получаем звонки
+        logger.info(f"Poluchenie zvonkov za poslednie {days} dney...")
+        calls_result = await api.call('voximplant.statistic.get', {
+            'FILTER': {'>=CALL_START_DATE': date_from}
+        })
+        calls = calls_result.get('result', [])
+        logger.info(f"Vsego zvonkov: {len(calls)}\n")
+    finally:
+        await api.aclose()
 
     if not calls:
         logger.info("[INFO] Net zvonkov za period")
@@ -134,4 +137,4 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    asyncio.run(main())

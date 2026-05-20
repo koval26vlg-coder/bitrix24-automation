@@ -6,53 +6,67 @@ logger = get_logger(__name__)
 Анализ проигранных сделок в воронке ОП
 """
 
+import asyncio
 from bitrix24_api import Bitrix24API
 from datetime import datetime
 import pandas as pd
 import config
 
-api = Bitrix24API()
 
-if not api.test_connection():
+async def fetch_lost_deals_data():
+    api = Bitrix24API()
+    try:
+        if not await api.test_connection():
+            return None, None
+
+        logger.info("=== ANALIZ PROIGRANNYH SDELOK V VORONKE OP ===\n")
+
+        # Находим воронку ОП
+        categories_result = await api.call('crm.category.list', {'entityTypeId': 2})
+        categories = categories_result.get('result', {}).get('categories', [])
+
+        op_category_id = None
+        for cat in categories:
+            if 'ОП' in cat.get('name', ''):
+                op_category_id = cat.get('id')
+                break
+
+        # Получаем проигранные сделки
+        logger.info("Poluchenie proigrannyh sdelok...")
+        filter_params = {
+            'STAGE_ID': 'C1:LOSE'
+        }
+        if op_category_id:
+            filter_params['CATEGORY_ID'] = op_category_id
+
+        result = await api.call('crm.deal.list', {
+            'filter': filter_params,
+            'select': ['ID', 'TITLE', 'STAGE_ID', 'DATE_CREATE', 'DATE_MODIFY',
+                       'CLOSEDATE', 'ASSIGNED_BY_ID', 'OPPORTUNITY', 'COMMENTS',
+                       'SOURCE_ID', 'CONTACT_ID', 'COMPANY_ID']
+        })
+
+        lost_deals = result.get('result', [])
+
+        # Получаем информацию о менеджерах
+        users_result = await api.call('user.get', {'FILTER': {'ACTIVE': True}})
+        users = {
+            u['ID']: f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip()
+            for u in users_result.get('result', [])
+        }
+        return lost_deals, users
+    finally:
+        await api.aclose()
+
+
+lost_deals, users = asyncio.run(fetch_lost_deals_data())
+if lost_deals is None:
     exit()
-
-logger.info("=== ANALIZ PROIGRANNYH SDELOK V VORONKE OP ===\n")
-
-# Находим воронку ОП
-categories_result = api.call('crm.category.list', {'entityTypeId': 2})
-categories = categories_result.get('result', {}).get('categories', [])
-
-op_category_id = None
-for cat in categories:
-    if 'ОП' in cat.get('name', ''):
-        op_category_id = cat.get('id')
-        break
-
-# Получаем проигранные сделки
-logger.info("Poluchenie proigrannyh sdelok...")
-filter_params = {
-    'STAGE_ID': 'C1:LOSE'
-}
-if op_category_id:
-    filter_params['CATEGORY_ID'] = op_category_id
-
-result = api.call('crm.deal.list', {
-    'filter': filter_params,
-    'select': ['ID', 'TITLE', 'STAGE_ID', 'DATE_CREATE', 'DATE_MODIFY',
-               'CLOSEDATE', 'ASSIGNED_BY_ID', 'OPPORTUNITY', 'COMMENTS',
-               'SOURCE_ID', 'CONTACT_ID', 'COMPANY_ID']
-})
-
-lost_deals = result.get('result', [])
 logger.info(f"Vsego proigrannyh sdelok: {len(lost_deals)}\n")
 
 if not lost_deals:
     logger.info("Proigrannyh sdelok ne naydeno")
     exit()
-
-# Получаем информацию о менеджерах
-users_result = api.call('user.get', {'FILTER': {'ACTIVE': True}})
-users = {u['ID']: f"{u.get('NAME', '')} {u.get('LAST_NAME', '')}".strip() for u in users_result.get('result', [])}
 
 # Преобразуем в DataFrame
 df = pd.DataFrame(lost_deals)

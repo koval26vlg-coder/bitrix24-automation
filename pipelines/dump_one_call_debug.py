@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import argparse
+import asyncio
 import json
 import os
 import re
+import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,6 +13,10 @@ from typing import Any, Optional
 from urllib.parse import quote
 
 import requests
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from asr.bitnewton import BitNewtonError, env_bitnewton_asr
 from bitrix.api import Bitrix24API
@@ -101,14 +107,12 @@ def looks_like_html_prefix(data: bytes) -> bool:
     return head.startswith(b"<!doctype") or head.startswith(b"<html") or head.startswith(b"<head") or head.startswith(b"<body")
 
 
-def run(args: argparse.Namespace) -> None:
-    api = Bitrix24API()
-
+async def _run_with_api(args: argparse.Namespace, api: Bitrix24API) -> None:
     date_to = datetime.now()
     date_from = date_to - timedelta(days=max(1, args.days))
     flt = {">=CALL_START_DATE": date_from.strftime("%Y-%m-%d"), "<=CALL_START_DATE": date_to.strftime("%Y-%m-%d")}
 
-    data = api.call("voximplant.statistic.get", {"FILTER": flt, "SORT": "CALL_START_DATE", "ORDER": "DESC", "LIMIT": args.limit})
+    data = await api.call("voximplant.statistic.get", {"FILTER": flt, "SORT": "CALL_START_DATE", "ORDER": "DESC", "LIMIT": args.limit})
     calls = data.get("result") or []
     if not calls:
         logger.info("Звонков не найдено. Попробуй увеличить --days.")
@@ -134,12 +138,12 @@ def run(args: argparse.Namespace) -> None:
 
         if record_file_id:
             try:
-                disk_get = api.call("disk.file.get", {"id": int(record_file_id)})
+                disk_get = await api.call("disk.file.get", {"id": int(record_file_id)})
             except Exception as e:
                 disk_get = {"error": str(e)}
 
             try:
-                disk_link = api.call("disk.file.getExternalLink", {"id": int(record_file_id)})
+                disk_link = await api.call("disk.file.getExternalLink", {"id": int(record_file_id)})
             except Exception as e:
                 disk_link = {"error": str(e)}
 
@@ -165,7 +169,7 @@ def run(args: argparse.Namespace) -> None:
 
         if activity_id:
             try:
-                act = api.call("crm.activity.get", {"id": int(activity_id)})
+                act = await api.call("crm.activity.get", {"id": int(activity_id)})
             except Exception as e:
                 act = {"error": str(e)}
 
@@ -491,9 +495,17 @@ def run(args: argparse.Namespace) -> None:
             pass
 
 
+async def run(args: argparse.Namespace) -> None:
+    api = Bitrix24API()
+    try:
+        await _run_with_api(args, api)
+    finally:
+        await api.aclose()
+
+
 def main() -> None:
     args = build_parser().parse_args()
-    run(args)
+    asyncio.run(run(args))
 
 
 if __name__ == "__main__":

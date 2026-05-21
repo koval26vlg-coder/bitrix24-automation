@@ -41,11 +41,25 @@ async def process_no_calls_deal(
     call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int = 0,
 ) -> dict[str, Any]:
-    error: str = (
-        "По сделке не найдено звонков менеджера после исключения Call-центра"
-        if call_center_acts
-        else "По сделке не найдено звонков"
-    )
+    short_count = int(skipped_short_calls or 0)
+    short_threshold_sec = int(getattr(ctx.args, "min_call_duration_sec", 0) or 0)
+    if short_count > 0:
+        threshold_text = (
+            f" короче {short_threshold_sec} сек." if short_threshold_sec > 0 else ""
+        )
+        error = (
+            f"Найдены только короткие звонки: {short_count} шт.{threshold_text}; "
+            "они исключены из анализа как попытки дозвона или технические соединения."
+        )
+        subject = "Только короткие звонки"
+    else:
+        error = (
+            "По сделке не найдено звонков менеджера после исключения Call-центра"
+            if call_center_acts
+            else "По сделке не найдено звонков"
+        )
+        subject = "Звонков не найдено"
+
     row: dict[str, Any] = {
         "deal_id": deal_id,
         "deal_url": deal_url_from_id(ctx.args.domain, deal_id),
@@ -60,7 +74,7 @@ async def process_no_calls_deal(
         ),
         "activity_id": None,
         "origin_id": None,
-        "subject": "Звонков не найдено",
+        "subject": subject,
         "start_time": None,
         "end_time": None,
         "duration_minutes": None,
@@ -72,7 +86,8 @@ async def process_no_calls_deal(
         "error": error,
         "no_calls": True,
         "ignored_call_center_calls": len(call_center_acts),
-        "skipped_short_calls": int(skipped_short_calls or 0),
+        "skipped_short_calls": short_count,
+        "short_call_threshold_sec": short_threshold_sec,
     }
     row.update(discipline)
     row.update(deal_quality)
@@ -88,11 +103,23 @@ async def process_no_calls_deal(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
             2,
         )
-    row["call_quality_conclusion"] = "Оценить разговор невозможно: по сделке не найдено звонков."
-    row["recommendations"] = (
-        "Проверить, был ли контакт с клиентом вне телефонии Bitrix. "
-        "Если звонка не было — запланировать касание и зафиксировать следующий шаг в CRM."
-    )
+    if short_count > 0:
+        row["call_quality_conclusion"] = (
+            "Оценить разговор невозможно: в сделке есть только короткие попытки дозвона."
+        )
+        row["recommendations"] = (
+            "Не считать такие активности полноценными переговорами. Нужен длинный разговор "
+            "с клиентом; если короткие звонки всё же нужно видеть в отчёте, снизить порог "
+            "«Не анализировать звонки короче, сек.»."
+        )
+    else:
+        row["call_quality_conclusion"] = (
+            "Оценить разговор невозможно: по сделке не найдено звонков."
+        )
+        row["recommendations"] = (
+            "Проверить, был ли контакт с клиентом вне телефонии Bitrix. "
+            "Если звонка не было — запланировать касание и зафиксировать следующий шаг в CRM."
+        )
     return row
 
 

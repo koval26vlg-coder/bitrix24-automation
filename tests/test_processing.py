@@ -50,6 +50,42 @@ async def test_process_no_calls_deal_builds_scored_error_row():
 
 
 @pytest.mark.asyncio
+async def test_process_no_calls_deal_explains_short_call_filter():
+    kpi = load_kpi_config(None)
+    args = SimpleNamespace(domain="example.bitrix24.ru", min_call_duration_sec=15)
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=None,
+        ui_audio_dir=None,
+        state_cache={},
+    )
+    deal = {"ID": "10", "STAGE_ID": "NEW", "TITLE": "Тестовая сделка", "ASSIGNED_BY_ID": "5"}
+
+    row = await process_no_calls_deal(
+        ctx=ctx,
+        deal_id="10",
+        deal=deal,
+        comments=[],
+        discipline={"first_response_minutes": None},
+        deal_quality={"deal_quality_score": 25},
+        manager_id=5,
+        call_center_acts=[],
+        skipped_short_calls=3,
+    )
+
+    assert row["subject"] == "Только короткие звонки"
+    assert row["skipped_short_calls"] == 3
+    assert row["short_call_threshold_sec"] == 15
+    assert "короткие звонки" in row["error"]
+    assert "15 сек" in row["error"]
+
+
+@pytest.mark.asyncio
 async def test_process_call_reuses_cached_transcript(monkeypatch, tmp_path):
     kpi = load_kpi_config(None)
     cached_path = tmp_path / "cached.txt"

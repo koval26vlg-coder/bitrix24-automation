@@ -233,7 +233,10 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         issues: list[str] = []
         if no_call_rows or calls_total == 0:
-            issues.append("по сделке не найдено звонков")
+            if skipped_short_calls > 0:
+                issues.append(f"только короткие звонки: {skipped_short_calls}")
+            else:
+                issues.append("по сделке не найдено звонков")
         if calls_failed:
             issues.append(f"не обработано звонков: {calls_failed}")
         if asr_skipped_calls:
@@ -301,7 +304,8 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 transcript_blocks.append(f"{heading}\n{transcript}")
 
         if no_call_rows and not call_blocks:
-            call_blocks.append("Звонков по сделке не найдено.")
+            message = first.get("error") or "Звонков по сделке не найдено."
+            call_blocks.append(str(message))
 
         out.append(
             {
@@ -412,7 +416,7 @@ def build_call_detail_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 {
                     "deal_url": first.get("deal_url"),
                     "call_number": "",
-                    "subject": "Звонков не найдено",
+                    "subject": first.get("subject") or "Звонков не найдено",
                     "duration_minutes": "",
                     "call_has_error": True,
                     "error": _short_error(first.get("error") or "По сделке не найдено звонков"),

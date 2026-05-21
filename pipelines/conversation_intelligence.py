@@ -32,8 +32,6 @@ CI_OBJECTION_COLUMNS = [
     "objection_status",
     "objection_fragment",
     "objection_recommendations",
-    "ci_next_manager_action",
-    "ci_confidence",
 ]
 
 EMOTIONAL_RISK_COLUMNS = [
@@ -53,8 +51,6 @@ EMOTIONAL_RISK_COLUMNS = [
     "ci_questions_count",
     "ci_next_step_present",
     "ci_risk_evidence",
-    "ci_recommendation",
-    "ci_confidence",
 ]
 
 CONVERSION_FACTOR_COLUMNS = [

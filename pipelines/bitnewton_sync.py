@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from logging_setup import get_logger
 from pipelines.config_loader import load_kpi_pair, load_state_cache, save_state_cache
 from pipelines.deals import resolve_deal_ids
 from pipelines.factories import (
@@ -20,6 +21,8 @@ from pipelines.runtime import (
     prepare_audio_runtime,
     resolve_retry_scope,
 )
+
+logger = get_logger(__name__)
 
 
 async def run_sync(args: Any) -> tuple[int, Path, Path]:
@@ -43,6 +46,10 @@ async def run_sync(args: Any) -> tuple[int, Path, Path]:
     if retry_scope is not None:
         deal_ids = list(retry_scope.get("deal_ids") or [])
     else:
+        if bool(getattr(args, "retry_queued_errors", False)):
+            logger.info("[RETRY] Очередь ошибок Bit.Newton пуста, повторный запуск не требуется.")
+            await api.aclose()
+            return 0, Path(""), Path("")
         deal_ids = await resolve_deal_ids(args, api, vibe=vibe)
 
     # 5. Подготовка окружения для обработки
@@ -64,6 +71,15 @@ async def run_sync(args: Any) -> tuple[int, Path, Path]:
         run_result = await process_deals(
             ctx=processing_ctx, deal_ids=deal_ids, retry_scope=retry_scope
         )
+        if processing_ctx.retry_queue_path is not None and processing_ctx.retry_queue is not None:
+            pending = len(processing_ctx.retry_queue)
+            if processing_ctx.retry_queue_added or processing_ctx.retry_queue_resolved:
+                logger.info(
+                    f"[RETRY-QUEUE] Добавлено в очередь={processing_ctx.retry_queue_added}, "
+                    f"снято после успешной обработки={processing_ctx.retry_queue_resolved}, "
+                    f"осталось в очереди={pending}. "
+                    f"Файл: {processing_ctx.retry_queue_path}"
+                )
 
         # 7. Финализация и генерация отчета
         report = await finalize_sync_report(

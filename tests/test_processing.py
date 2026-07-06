@@ -1,8 +1,10 @@
+import asyncio
 from types import SimpleNamespace
 
 import pytest
 
 from asr.bitnewton import BitNewtonAuthError
+from pipelines.calls import extract_bitrix_gpt_summaries
 from pipelines.kpi import load_kpi_config
 from pipelines.processing import (
     ProcessingContext,
@@ -11,6 +13,36 @@ from pipelines.processing import (
     process_deals,
     process_no_calls_deal,
 )
+
+
+def test_extract_bitrix_gpt_summaries_uses_marker_and_neighbor_comment():
+    comments = [
+        "BitrixGPT составил резюме чата",
+        "Клиент попросил обновить КП и уточнить сроки запуска.",
+        "BitrixGPT составил резюме звонка",
+        "Менеджер согласовал следующий созвон и отправку расчета.",
+    ]
+
+    summary = extract_bitrix_gpt_summaries(comments)
+
+    assert summary["bitrix_summary_found"] is True
+    assert "Клиент попросил обновить КП" in summary["bitrix_chat_summary"]
+    assert "Менеджер согласовал следующий созвон" in summary["bitrix_call_summary"]
+    assert "чат" in summary["bitrix_summary_sources"]
+    assert "звонок" in summary["bitrix_summary_sources"]
+
+
+def test_extract_bitrix_gpt_summaries_fallback_by_keywords():
+    comments = [
+        "Диалог чат: клиент уточнил стоимость лицензии и сроки запуска.",
+        "Созвон с клиентом: договорились отправить КП до пятницы.",
+    ]
+
+    summary = extract_bitrix_gpt_summaries(comments)
+
+    assert summary["bitrix_summary_found"] is True
+    assert "Диалог чат" in summary["bitrix_chat_summary"]
+    assert "Созвон с клиентом" in summary["bitrix_call_summary"]
 
 
 @pytest.mark.asyncio
@@ -475,6 +507,165 @@ async def test_process_call_marks_asr_skipped_for_bitnewton_auth_error(monkeypat
     assert row["asr_skipped"] is True
     assert "ASR пропущена" in row["asr_status"]
     assert ctx.asr_disabled_reason
+
+
+@pytest.mark.asyncio
+async def test_process_call_enqueues_bitnewton_transient_failure(monkeypatch, tmp_path):
+    kpi = load_kpi_config(None)
+    audio_path = tmp_path / "call.mp3"
+    audio_path.write_bytes(b"audio")
+    queue_path = tmp_path / "bitnewton_retry_queue.json"
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru",
+        no_reuse_transcripts=True,
+        force_attach=False,
+        download_audio=False,
+        diarize=False,
+        fetch_bitrix_card_transcript=False,
+        ui_download=False,
+        vibecode_asr_fallback=False,
+    )
+
+    async def fake_download_audio_for_call(**kwargs):
+        return audio_path, kwargs["ui_browser_session"]
+
+    async def fake_transcribe_with_bitnewton(**kwargs):
+        raise RuntimeError(
+            "HTTPSConnectionPool(host='bit-asr.1bitai.ru', port=443): "
+            "Max retries exceeded with url: /start_transcribing "
+            "(Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] ...')))"
+        )
+
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton
+    )
+
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=tmp_path,
+        ui_audio_dir=tmp_path,
+        state_cache={},
+        retry_queue={},
+        retry_queue_path=queue_path,
+        retry_queue_lock=asyncio.Lock(),
+    )
+
+    row, success = await process_call(
+        ctx=ctx,
+        deal_id="32",
+        deal={"ID": "32", "STAGE_ID": "NEW", "TITLE": "КП касса"},
+        comments=[],
+        discipline={"first_response_minutes": 10},
+        deal_quality={"deal_quality_score": 25},
+        manager_id=5,
+        call_center_acts=[],
+        activity={"ID": "302", "ORIGIN_ID": "CALL-302", "SUBJECT": "Исходящий звонок"},
+    )
+
+    assert success is False
+    assert row["queued_for_retry"] is True
+    assert ctx.retry_queue_added == 1
+    assert len(ctx.retry_queue) == 1
+    assert queue_path.exists()
+
+
+@pytest.mark.asyncio
+async def test_process_call_resolves_retry_queue_entry_after_success(monkeypatch, tmp_path):
+    kpi = load_kpi_config(None)
+    audio_path = tmp_path / "call.mp3"
+    transcript_path = tmp_path / "transcript.txt"
+    queue_path = tmp_path / "bitnewton_retry_queue.json"
+    args = SimpleNamespace(
+        domain="example.bitrix24.ru",
+        no_reuse_transcripts=True,
+        force_attach=False,
+        download_audio=False,
+        diarize=False,
+        fetch_bitrix_card_transcript=False,
+        ui_download=False,
+    )
+
+    async def fake_download_audio_for_call(**kwargs):
+        audio_path.write_bytes(b"audio")
+        kwargs["row"]["audio_path"] = str(audio_path)
+        return audio_path, kwargs["ui_browser_session"]
+
+    async def fake_transcribe_with_bitnewton(**kwargs):
+        transcript_path.write_text("Тест расшифровки", encoding="utf-8")
+        return "Тест расшифровки", "task-303", transcript_path
+
+    async def fake_attach_transcription_to_bitrix(*_args, **_kwargs):
+        return {"ok": True}
+
+    async def fake_activity_get(_api, activity_id):
+        return {
+            "ID": activity_id,
+            "START_TIME": "2026-05-01T10:00:00+03:00",
+            "END_TIME": "2026-05-01T10:03:00+03:00",
+        }
+
+    monkeypatch.setattr(
+        "pipelines.processing.calls.download_audio_for_call", fake_download_audio_for_call
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.transcribe_with_bitnewton", fake_transcribe_with_bitnewton
+    )
+    monkeypatch.setattr(
+        "pipelines.processing.calls.attach_transcription_to_bitrix",
+        fake_attach_transcription_to_bitrix,
+    )
+    monkeypatch.setattr("pipelines.processing.calls.activity_get", fake_activity_get)
+    monkeypatch.setattr("pipelines.processing.calls._save_state_cache", lambda state: None)
+
+    ctx = ProcessingContext(
+        api=object(),
+        asr=object(),
+        args=args,
+        kpi=kpi,
+        kpi_cmp=None,
+        audio_source_index=[],
+        audio_dir=tmp_path,
+        ui_audio_dir=tmp_path,
+        state_cache={},
+        retry_queue={
+            "call:CALL-303": {
+                "deal_id": "33",
+                "activity_id": 303,
+                "origin_id": "CALL-303",
+                "error": "previous error",
+                "retry_attempts": 1,
+                "queued_at": "2026-05-01T10:00:00",
+                "last_error_at": "2026-05-01T10:00:00",
+            }
+        },
+        retry_queue_path=queue_path,
+        retry_queue_lock=asyncio.Lock(),
+    )
+
+    row, success = await process_call(
+        ctx=ctx,
+        deal_id="33",
+        deal={"ID": "33", "STAGE_ID": "NEW", "TITLE": "КП касса", "OPPORTUNITY": "10000"},
+        comments=[],
+        discipline={"first_response_minutes": 10},
+        deal_quality={"deal_quality_score": 25},
+        manager_id=5,
+        call_center_acts=[],
+        activity={"ID": "303", "ORIGIN_ID": "CALL-303", "SUBJECT": "Исходящий звонок"},
+    )
+
+    assert success is True
+    assert row["error"] is None
+    assert ctx.retry_queue_resolved == 1
+    assert ctx.retry_queue == {}
 
 
 @pytest.mark.asyncio

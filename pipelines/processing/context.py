@@ -26,6 +26,11 @@ class ProcessingContext:
     vibe: Any = None
     asr_disabled_reason: str | None = None
     codex_evaluator: Any = None  # Добавляем CodexEvaluator
+    retry_queue: dict[str, dict[str, Any]] | None = None
+    retry_queue_path: Path | None = None
+    retry_queue_lock: Any = None
+    retry_queue_added: int = 0
+    retry_queue_resolved: int = 0
 
 
 @dataclass

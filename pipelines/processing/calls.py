@@ -12,6 +12,12 @@ from pipelines.deals import deal_url_from_id
 from pipelines.evaluation import apply_scores, finalize_transcript_analysis
 from pipelines.processing.context import ProcessingContext
 from pipelines.scoring import transcript_match_score
+from pipelines.stages import safe_int
+from pipelines.retry_queue import (
+    enqueue_bitnewton_retry,
+    resolve_bitnewton_retry,
+    save_bitnewton_retry_queue,
+)
 from pipelines.transcription import (
     _save_state_cache,
     _sha256_text,
@@ -29,6 +35,94 @@ def _external_writes_disabled(ctx: ProcessingContext) -> bool:
     return bool(getattr(ctx.args, "no_external_write", False) or _dry_run_enabled(ctx))
 
 
+def _short_summary_text(value: Any, max_chars: int = 900) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    text = " ".join(text.split())
+    if len(text) <= max_chars:
+        return text
+    return text[: max_chars - 1].rstrip() + "…"
+
+
+def _is_bitnewton_retryable_error(error: Exception) -> bool:
+    if isinstance(error, BitNewtonAuthError):
+        return False
+    text = str(error or "").lower()
+    markers = (
+        "bit-asr.1bitai.ru",
+        "start_transcribing",
+        "asr task failed",
+        "asr timeout",
+        "ssleoferror",
+        "unexpected_eof_while_reading",
+        "max retries exceeded",
+        "remote end closed connection",
+        "connection aborted",
+        "read timed out",
+    )
+    return any(marker in text for marker in markers)
+
+
+async def _enqueue_retry_if_needed(
+    ctx: ProcessingContext,
+    *,
+    row: dict[str, Any],
+    error: Exception,
+    bitnewton_attempted: bool,
+) -> None:
+    if not bitnewton_attempted:
+        return
+    if not _is_bitnewton_retryable_error(error):
+        return
+    if ctx.retry_queue is None or ctx.retry_queue_path is None:
+        return
+
+    if ctx.retry_queue_lock is not None:
+        async with ctx.retry_queue_lock:
+            is_new = enqueue_bitnewton_retry(ctx.retry_queue, row=row, error=error)
+            save_bitnewton_retry_queue(ctx.retry_queue, ctx.retry_queue_path)
+    else:
+        is_new = enqueue_bitnewton_retry(ctx.retry_queue, row=row, error=error)
+        save_bitnewton_retry_queue(ctx.retry_queue, ctx.retry_queue_path)
+
+    if is_new:
+        ctx.retry_queue_added += 1
+    row["queued_for_retry"] = True
+    row["retry_queue_reason"] = "Bit.Newton временно недоступен"
+    row["retry_queue_path"] = str(ctx.retry_queue_path)
+
+
+async def _resolve_retry_if_present(
+    ctx: ProcessingContext, *, call_id: str | None, deal_id: str, activity_id: int | None
+) -> None:
+    if ctx.retry_queue is None or ctx.retry_queue_path is None:
+        return
+
+    if ctx.retry_queue_lock is not None:
+        async with ctx.retry_queue_lock:
+            removed = resolve_bitnewton_retry(
+                ctx.retry_queue,
+                call_id=call_id,
+                deal_id=deal_id,
+                activity_id=activity_id,
+            )
+            if removed:
+                save_bitnewton_retry_queue(ctx.retry_queue, ctx.retry_queue_path)
+    else:
+        removed = resolve_bitnewton_retry(
+            ctx.retry_queue,
+            call_id=call_id,
+            deal_id=deal_id,
+            activity_id=activity_id,
+        )
+        if removed:
+            save_bitnewton_retry_queue(ctx.retry_queue, ctx.retry_queue_path)
+
+    if removed:
+        ctx.retry_queue_resolved += 1
+
+
 async def process_no_calls_deal(
     *,
     ctx: ProcessingContext,
@@ -40,6 +134,8 @@ async def process_no_calls_deal(
     manager_id: int | None,
     call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int = 0,
+    next_steps: list[dict[str, Any]] | None = None,
+    bitrix_gpt_summaries: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     short_count = int(skipped_short_calls or 0)
     short_threshold_sec = int(getattr(ctx.args, "min_call_duration_sec", 0) or 0)
@@ -88,16 +184,44 @@ async def process_no_calls_deal(
         "ignored_call_center_calls": len(call_center_acts),
         "skipped_short_calls": short_count,
         "short_call_threshold_sec": short_threshold_sec,
+        "bitrix_chat_summary": str((bitrix_gpt_summaries or {}).get("bitrix_chat_summary") or ""),
+        "bitrix_call_summary": str((bitrix_gpt_summaries or {}).get("bitrix_call_summary") or ""),
+        "bitrix_combined_summary": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_combined_summary") or ""
+        ),
+        "bitrix_overall_meaning": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_overall_meaning") or ""
+        ),
+        "bitrix_summary_sources": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_summary_sources") or ""
+        ),
+        "bitrix_summary_found": bool((bitrix_gpt_summaries or {}).get("bitrix_summary_found")),
     }
     row.update(discipline)
     row.update(deal_quality)
 
     await apply_scores(
-        row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator
+        row,
+        deal,
+        comments,
+        "",
+        ctx.kpi,
+        suffix="",
+        codex_evaluator=ctx.codex_evaluator,
+        next_steps=next_steps,
+        short_call_without_conversation=short_count > 0,
     )
     if ctx.kpi_cmp is not None:
         await apply_scores(
-            row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator
+            row,
+            deal,
+            comments,
+            "",
+            ctx.kpi_cmp,
+            suffix="_cmp",
+            codex_evaluator=ctx.codex_evaluator,
+            next_steps=next_steps,
+            short_call_without_conversation=short_count > 0,
         )
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
@@ -120,6 +244,8 @@ async def process_no_calls_deal(
             "Проверить, был ли контакт с клиентом вне телефонии Bitrix. "
             "Если звонка не было — запланировать касание и зафиксировать следующий шаг в CRM."
         )
+    if row.get("bitrix_overall_meaning"):
+        row["conversation_meaning"] = str(row.get("bitrix_overall_meaning") or "")
     return row
 
 
@@ -136,6 +262,7 @@ def _build_call_row(
     kpi_cmp: dict[str, Any] | None,
     call_center_acts: list[dict[str, Any]],
     skipped_short_calls: int = 0,
+    bitrix_gpt_summaries: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     row: dict[str, Any] = {
         "deal_id": deal_id,
@@ -161,6 +288,18 @@ def _build_call_row(
         "error": None,
         "ignored_call_center_calls": len(call_center_acts),
         "skipped_short_calls": int(skipped_short_calls or 0),
+        "bitrix_chat_summary": str((bitrix_gpt_summaries or {}).get("bitrix_chat_summary") or ""),
+        "bitrix_call_summary": str((bitrix_gpt_summaries or {}).get("bitrix_call_summary") or ""),
+        "bitrix_combined_summary": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_combined_summary") or ""
+        ),
+        "bitrix_overall_meaning": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_overall_meaning") or ""
+        ),
+        "bitrix_summary_sources": str(
+            (bitrix_gpt_summaries or {}).get("bitrix_summary_sources") or ""
+        ),
+        "bitrix_summary_found": bool((bitrix_gpt_summaries or {}).get("bitrix_summary_found")),
     }
     row.update(discipline)
     row.update(deal_quality)
@@ -220,6 +359,7 @@ async def _mark_asr_skipped(
     row: dict[str, Any],
     deal: dict[str, Any],
     comments: list[str],
+    next_steps: list[dict[str, Any]] | None,
     reason: str,
 ) -> tuple[dict[str, Any], bool]:
     row["asr_skipped"] = True
@@ -231,11 +371,25 @@ async def _mark_asr_skipped(
     row["combined_transcript_text"] = ""
 
     await apply_scores(
-        row, deal, comments, "", ctx.kpi, suffix="", codex_evaluator=ctx.codex_evaluator
+        row,
+        deal,
+        comments,
+        "",
+        ctx.kpi,
+        suffix="",
+        codex_evaluator=ctx.codex_evaluator,
+        next_steps=next_steps,
     )
     if ctx.kpi_cmp is not None:
         await apply_scores(
-            row, deal, comments, "", ctx.kpi_cmp, suffix="_cmp", codex_evaluator=ctx.codex_evaluator
+            row,
+            deal,
+            comments,
+            "",
+            ctx.kpi_cmp,
+            suffix="_cmp",
+            codex_evaluator=ctx.codex_evaluator,
+            next_steps=next_steps,
         )
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0),
@@ -248,8 +402,9 @@ async def _mark_asr_skipped(
     row["call_quality_conclusion"] = (
         "Разговор не оценен: новая ASR-расшифровка пропущена из-за проблемы с Bit.Newton."
     )
-    row["conversation_meaning"] = (
-        "Нет расшифровки: можно оценить только CRM-часть и движение сделки."
+    row["conversation_meaning"] = str(
+        row.get("bitrix_overall_meaning")
+        or "Нет расшифровки: можно оценить только CRM-часть и движение сделки."
     )
     row["recommendations"] = (
         "Обновить BITNEWTON_TOKEN и запустить режим «Повторить только ошибки» или обычную обработку с кэшем."  # noqa: E501
@@ -317,6 +472,8 @@ async def process_call(
     call_center_acts: list[dict[str, Any]],
     activity: dict[str, Any],
     skipped_short_calls: int = 0,
+    next_steps: list[dict[str, Any]] | None = None,
+    bitrix_gpt_summaries: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], bool]:
     row: dict[str, Any] = _build_call_row(
         args=ctx.args,
@@ -330,8 +487,10 @@ async def process_call(
         kpi_cmp=ctx.kpi_cmp,
         call_center_acts=call_center_acts,
         skipped_short_calls=skipped_short_calls,
+        bitrix_gpt_summaries=bitrix_gpt_summaries,
     )
 
+    bitnewton_attempted = False
     try:
         call_id: str = str(row["origin_id"] or "")
         if not call_id:
@@ -360,6 +519,7 @@ async def process_call(
                     ctx.kpi,
                     ctx.kpi_cmp,
                     codex_evaluator=ctx.codex_evaluator,
+                    next_steps=next_steps,
                 )
 
                 if ctx.args.force_attach:
@@ -389,6 +549,12 @@ async def process_call(
                 }
                 _save_state_cache(ctx.state_cache)
                 await _timeline_log_analysis(ctx, deal_id, row)
+                await _resolve_retry_if_present(
+                    ctx,
+                    call_id=call_id,
+                    deal_id=deal_id,
+                    activity_id=safe_int(row.get("activity_id")),
+                )
                 print(
                     f"[CACHE] Использую сохранённую расшифровку: "
                     f"activity_id={row.get('activity_id')}",
@@ -402,6 +568,7 @@ async def process_call(
                 row=row,
                 deal=deal,
                 comments=comments,
+                next_steps=next_steps,
                 reason="dry-run: новая ASR и скачивание аудио отключены",
             )
 
@@ -413,6 +580,7 @@ async def process_call(
                 row=row,
                 deal=deal,
                 comments=comments,
+                next_steps=next_steps,
                 reason=str(ctx.asr_disabled_reason),
             )
 
@@ -433,6 +601,7 @@ async def process_call(
         try:
             if ctx.asr_disabled_reason:
                 raise BitNewtonAuthError(str(ctx.asr_disabled_reason))
+            bitnewton_attempted = True
             text, task_id, transcript_path = await transcribe_with_bitnewton(
                 asr=ctx.asr,
                 audio_path=out_path,
@@ -458,6 +627,14 @@ async def process_call(
         row["transcript_excerpt"] = (text or "")[:1200]
 
         bitrix_text = await _fetch_bitrix_card_transcript(ctx, row, text)
+        if bitrix_text:
+            row["bitrix_call_summary"] = _short_summary_text(bitrix_text)
+            row["bitrix_summary_found"] = True
+            if row.get("bitrix_summary_sources"):
+                if "звонок" not in str(row.get("bitrix_summary_sources")):
+                    row["bitrix_summary_sources"] = f"{row['bitrix_summary_sources']}, звонок"
+            else:
+                row["bitrix_summary_sources"] = "звонок"
 
         await finalize_transcript_analysis(
             row,
@@ -468,6 +645,7 @@ async def process_call(
             ctx.kpi,
             ctx.kpi_cmp,
             codex_evaluator=ctx.codex_evaluator,
+            next_steps=next_steps,
         )
 
         txt_hash: str = _sha256_text(text or "")
@@ -503,14 +681,25 @@ async def process_call(
         }
         _save_state_cache(ctx.state_cache)
         await _timeline_log_analysis(ctx, deal_id, row)
+        await _resolve_retry_if_present(
+            ctx,
+            call_id=call_id,
+            deal_id=deal_id,
+            activity_id=safe_int(row.get("activity_id")),
+        )
         return row, True
     except BitNewtonAuthError as e:
         ctx.asr_disabled_reason = str(e)
         return await _mark_asr_skipped(
-            ctx=ctx, row=row, deal=deal, comments=comments, reason=str(e)
+            ctx=ctx, row=row, deal=deal, comments=comments, next_steps=next_steps, reason=str(e)
         )
     except Exception as e:
         row["error"] = str(e)
+        await _enqueue_retry_if_needed(
+            ctx, row=row, error=e, bitnewton_attempted=bitnewton_attempted
+        )
+        if row.get("bitrix_overall_meaning") and not row.get("conversation_meaning"):
+            row["conversation_meaning"] = str(row.get("bitrix_overall_meaning") or "")
         return row, False
     finally:
         if row.get("audio_path") and not ctx.args.download_audio:

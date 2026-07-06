@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -9,9 +10,10 @@ from logging_setup import get_logger
 from pipelines.audio import build_audio_source_index, parse_audio_source_dirs
 from pipelines.cleanup import cleanup_old_outputs
 from pipelines.deals import resolve_deal_ids
-from pipelines.paths import REPORTS_DIR
+from pipelines.paths import BITNEWTON_RETRY_QUEUE_PATH, REPORTS_DIR
 from pipelines.processing import ProcessingContext
 from pipelines.retry import load_retry_scope
+from pipelines.retry_queue import load_bitnewton_retry_queue
 from scoring.codex_evaluator import CodexEvaluator
 
 logger = get_logger(__name__)
@@ -26,13 +28,23 @@ class AudioRuntime:
 
 def resolve_retry_scope(args: Any) -> dict[str, Any] | None:
     """Загружает область повторной обработки ошибок."""
-    retry_scope = load_retry_scope(args.retry_errors_from) if args.retry_errors_from else None
+    retry_source: str | Path | None = None
+    if args.retry_errors_from:
+        retry_source = args.retry_errors_from
+    elif bool(getattr(args, "retry_queued_errors", False)) and BITNEWTON_RETRY_QUEUE_PATH.exists():
+        retry_source = BITNEWTON_RETRY_QUEUE_PATH
+
+    retry_scope = load_retry_scope(retry_source) if retry_source else None
     if retry_scope is not None:
         error_count = retry_scope.get("errors", 0)
         deal_count = len(retry_scope.get("deal_ids", []))
         logger.info(
             f"[RETRY] Повторяю только ошибки из отчета: "
             f"строк с ошибками={error_count}, сделок={deal_count}"
+        )
+    elif bool(getattr(args, "retry_queued_errors", False)):
+        logger.info(
+            f"[RETRY] Очередь Bit.Newton пуста: {BITNEWTON_RETRY_QUEUE_PATH}"
         )
     return retry_scope
 
@@ -109,6 +121,11 @@ def build_processing_context(
     vibe: Any = None,
 ) -> ProcessingContext:
     """Собирает контекст для выполнения обработки."""
+    retry_queue = load_bitnewton_retry_queue(BITNEWTON_RETRY_QUEUE_PATH)
+    if retry_queue:
+        logger.info(
+            f"[RETRY-QUEUE] Накоплено звонков в очереди Bit.Newton: {len(retry_queue)}"
+        )
     return ProcessingContext(
         api=api,
         asr=asr,
@@ -122,6 +139,9 @@ def build_processing_context(
         vibe=vibe,
         asr_disabled_reason=getattr(asr, "auth_error", None),
         codex_evaluator=CodexEvaluator(),
+        retry_queue=retry_queue,
+        retry_queue_path=BITNEWTON_RETRY_QUEUE_PATH,
+        retry_queue_lock=asyncio.Lock(),
     )
 
 

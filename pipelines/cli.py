@@ -90,6 +90,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--domain", default=os.getenv("BITRIX24_DOMAIN", "online-kassa.bitrix24.ru")
     )
     parser.add_argument(
+        "--bitrix-source",
+        choices=["rest", "vibecode", "mcp"],
+        default=os.getenv("BITRIX_SOURCE", "rest").strip().lower() or "rest",
+        help=(
+            "Источник данных Bitrix для runtime: rest (вебхук), vibecode (/v1/*), "
+            "mcp (документационный MCP; для runtime автоматически используется REST)"
+        ),
+    )
+    parser.add_argument(
         "--kpi-config", default=None, help="Путь к JSON с порогами/весами/паттернами оценки"
     )
     parser.add_argument(
@@ -122,6 +131,11 @@ def build_parser() -> argparse.ArgumentParser:
         "--retry-errors-from",
         default=None,
         help="JSON отчета, из которого нужно повторить только строки с ошибками",
+    )
+    parser.add_argument(
+        "--retry-queued-errors",
+        action="store_true",
+        help="Повторить звонки из автоматической очереди ошибок Bit.Newton (reports/bitnewton_retry_queue.json)",  # noqa: E501
     )
     parser.add_argument(
         "--reevaluate-from",

@@ -8,6 +8,7 @@ from typing import Any
 
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 
 from logging_setup import get_logger
 
@@ -42,6 +43,10 @@ ACTIVITY_FIELD_MAP = {
     "startTime": "START_TIME",
     "endTime": "END_TIME",
     "subject": "SUBJECT",
+    "description": "DESCRIPTION",
+    "resultSummary": "RESULT_SUMMARY",
+    "providerTypeName": "PROVIDER_TYPE_NAME",
+    "settings": "SETTINGS",
     "originId": "ORIGIN_ID",
     "direction": "DIRECTION",
     "providerId": "PROVIDER_ID",
@@ -86,6 +91,20 @@ FILTER_FIELD_MAP = {
 
 class VibeCodeError(RuntimeError):
     pass
+
+
+class SourceIPAdapter(HTTPAdapter):
+    def __init__(self, source_ip: str, *args: Any, **kwargs: Any):
+        self.source_ip = source_ip
+        super().__init__(*args, **kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):  # type: ignore[override]
+        pool_kwargs["source_address"] = (self.source_ip, 0)
+        return super().init_poolmanager(connections, maxsize, block=block, **pool_kwargs)
+
+    def proxy_manager_for(self, proxy, **proxy_kwargs):  # type: ignore[override]
+        proxy_kwargs["source_address"] = (self.source_ip, 0)
+        return super().proxy_manager_for(proxy, **proxy_kwargs)
 
 
 def _map_keys(row: dict[str, Any], mapping: dict[str, str]) -> dict[str, Any]:
@@ -143,6 +162,7 @@ class VibeCodeClient:
         timeout_sec: float = 30.0,
         max_attempts: int = 3,
         readonly: bool = False,
+        source_ip: str = "",
     ):
         self.api_key = (api_key or "").strip()
         if not self.api_key:
@@ -153,6 +173,12 @@ class VibeCodeClient:
         self.readonly = readonly
         self.session = requests.Session()
         self.session.headers.update({"X-Api-Key": self.api_key})
+        self.source_ip = (source_ip or "").strip()
+        if self.source_ip:
+            adapter = SourceIPAdapter(self.source_ip)
+            self.session.mount("https://", adapter)
+            self.session.mount("http://", adapter)
+            logger.info(f"[NET] VibeCode source IP bind enabled: {self.source_ip}")
 
     def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         if self.readonly and method == "POST" and not path.endswith("/search"):
@@ -251,6 +277,21 @@ class VibeCodeClient:
                     "providerId": "VOXIMPLANT_CALL",
                 },
                 "sort": {"startTime": "asc"},
+                "limit": max(1, min(5000, int(limit or 500))),
+            },
+        )
+        rows = data.get("data") if isinstance(data, dict) else []
+        return [vibe_activity_to_bitrix(row) for row in rows if isinstance(row, dict)]
+
+    def list_deal_activities(self, deal_id: str, limit: int = 500) -> list[dict[str, Any]]:
+        data = self.post(
+            "/v1/activities/search",
+            {
+                "filter": {
+                    "ownerTypeId": 2,
+                    "ownerId": int(deal_id),
+                },
+                "sort": {"id": "desc"},
                 "limit": max(1, min(5000, int(limit or 500))),
             },
         )
@@ -364,4 +405,10 @@ def env_vibecode_client() -> VibeCodeClient | None:
         return None
     timeout_sec = float(os.getenv("VIBECODE_TIMEOUT_SEC", "30") or 30)
     max_attempts = int(os.getenv("VIBECODE_MAX_ATTEMPTS", "3") or 3)
-    return VibeCodeClient(api_key=api_key, timeout_sec=timeout_sec, max_attempts=max_attempts)
+    source_ip = os.getenv("VIBECODE_SOURCE_IP", "").strip()
+    return VibeCodeClient(
+        api_key=api_key,
+        timeout_sec=timeout_sec,
+        max_attempts=max_attempts,
+        source_ip=source_ip,
+    )

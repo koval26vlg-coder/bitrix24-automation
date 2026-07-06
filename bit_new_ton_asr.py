@@ -31,11 +31,23 @@ class BitNewtonASR:
     Асинхронный клиент Bit.Newton ASR.
     """
 
-    def __init__(self, base_url: str, token: str, timeout_sec: int = 120):
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        timeout_sec: int = 120,
+        source_ip: str = "",
+    ):
         self.base_url = (base_url or "").rstrip("/")
         self.token = token
         self.timeout_sec = float(timeout_sec)
-        self.client = httpx.AsyncClient(timeout=self.timeout_sec)
+        self.source_ip = (source_ip or "").strip()
+        client_kwargs = {"timeout": self.timeout_sec}
+        if self.source_ip:
+            client_kwargs["transport"] = httpx.AsyncHTTPTransport(
+                local_address=self.source_ip
+            )
+        self.client = httpx.AsyncClient(**client_kwargs)
 
     async def aclose(self):
         await self.client.aclose()
@@ -160,4 +172,12 @@ def env_bitnewton_asr() -> BitNewtonASR | None:
     if not token:
         return None
     timeout_sec = int(os.getenv("BITNEWTON_HTTP_TIMEOUT_SEC", "300") or 300)
-    return BitNewtonASR(base_url=base_url, token=token, timeout_sec=timeout_sec)
+    source_ip = (
+        os.getenv("BITNEWTON_SOURCE_IP", "") or os.getenv("BITRIX24_SOURCE_IP", "")
+    ).strip()
+    return BitNewtonASR(
+        base_url=base_url,
+        token=token,
+        timeout_sec=timeout_sec,
+        source_ip=source_ip,
+    )

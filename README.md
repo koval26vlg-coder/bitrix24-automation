@@ -19,9 +19,13 @@ BITRIX24_WEBHOOK=https://online-kassa.bitrix24.ru/rest/USER_ID/WEBHOOK_CODE/
 BITRIX24_DOMAIN=online-kassa.bitrix24.ru
 BITNEWTON_ASR_URL=https://bit-asr.1bitai.ru
 BITNEWTON_TOKEN=your_bitnewton_token
+BITRIX24_SOURCE_IP=
+VIBECODE_SOURCE_IP=
 ```
 
 Права входящего webhook: CRM, телефония, диск, пользователи.
+
+Если работаете через full-tunnel VPN (VanyaVPN/Outline), задайте `BITRIX24_SOURCE_IP` и `VIBECODE_SOURCE_IP` в локальный Wi-Fi IP, чтобы избежать TLS timeout на Bitrix/VibeCode.
 
 ## Установка
 

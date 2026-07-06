@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import html as html_lib
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,10 @@ class DownloadResult:
     path: Path | None
     attempts: list[DownloadAttempt]
     error: str | None = None
+
+
+def _source_ip_from_env(source_ip: str | None = None) -> str:
+    return (source_ip if source_ip is not None else os.getenv("BITRIX24_SOURCE_IP", "")).strip()
 
 
 def _looks_like_html_prefix(data: bytes) -> bool:
@@ -69,6 +74,7 @@ async def download_best_effort(
     timeout_sec: int = 180,
     max_total_bytes: int = 250 * 1024 * 1024,
     retries: int = 1,
+    source_ip: str | None = None,
 ) -> DownloadResult:
     """
     Пытается скачать файл по цепочке URL-кандидатов (асинхронно через httpx).
@@ -109,13 +115,24 @@ async def download_best_effort(
                 if r.status_code >= 400:
                     return None
 
+                byte_iter = r.aiter_bytes(chunk_size=1024 * 256)
+                first_chunk = await anext(byte_iter, b"")
+                if not first_chunk:
+                    attempts[-1].note = "empty-body"
+                    return None
+
                 # если html — попробуем вытащить download href
                 if ctype and "text/html" in ctype:
-                    first = await r.aiter_bytes(chunk_size=40000).__anext__()
-                    html = first.decode("utf-8", errors="ignore")
-                    direct = (
-                        _resolve_any_download_href(html, base_url=base_url) if base_url else None
-                    )
+                    html_buf = bytearray(first_chunk)
+                    if len(html_buf) < 200000:
+                        async for chunk in byte_iter:
+                            if not chunk:
+                                continue
+                            html_buf.extend(chunk)
+                            if len(html_buf) >= 200000:
+                                break
+                    html_text = bytes(html_buf).decode("utf-8", errors="ignore")
+                    direct = _resolve_any_download_href(html_text, base_url=base_url) if base_url else None
                     attempts[-1].note = "html"
                     if not direct:
                         return None
@@ -123,16 +140,19 @@ async def download_best_effort(
                     return await _try_url(client, direct, referer=u)
 
                 # иначе считаем, что это файл; проверим первые байты
-                first_chunk = await r.aiter_bytes(chunk_size=4096).__anext__()
                 if _looks_like_html_prefix(first_chunk):
+                    html_text = first_chunk.decode("utf-8", errors="ignore")
+                    direct = _resolve_any_download_href(html_text, base_url=base_url) if base_url else None
                     attempts[-1].note = "html-bytes"
+                    if direct:
+                        return await _try_url(client, direct, referer=u)
                     return None
 
                 written = 0
                 with out_path.open("wb") as f:
                     f.write(first_chunk)
                     written += len(first_chunk)
-                    async for chunk in r.aiter_bytes(chunk_size=1024 * 256):
+                    async for chunk in byte_iter:
                         if not chunk:
                             continue
                         f.write(chunk)
@@ -143,6 +163,7 @@ async def download_best_effort(
                             )
                 return out_path
         except Exception as e:
+            msg = str(e) or repr(e)
             if not attempts or attempts[-1].url != u:
                 attempts.append(
                     DownloadAttempt(
@@ -151,11 +172,11 @@ async def download_best_effort(
                         final_url=None,
                         history=[],
                         content_type=None,
-                        note=f"error: {e}",
+                        note=f"error: {msg}",
                     )
                 )
             else:
-                attempts[-1].note += f" error: {e}"
+                attempts[-1].note += f" error: {msg}"
             return None
 
     clean_candidates = [
@@ -165,7 +186,12 @@ async def download_best_effort(
     ]
     last_err = None
 
-    async with httpx.AsyncClient() as client:
+    client_kwargs = {}
+    bind_ip = _source_ip_from_env(source_ip)
+    if bind_ip:
+        client_kwargs["transport"] = httpx.AsyncHTTPTransport(local_address=bind_ip)
+
+    async with httpx.AsyncClient(**client_kwargs) as client:
         for _ in range(retries + 1):
             for i, u in enumerate(clean_candidates):
                 try:

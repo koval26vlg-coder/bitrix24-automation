@@ -7,6 +7,7 @@ from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
+from requests.adapters import HTTPAdapter
 
 load_dotenv(override=True)
 
@@ -25,6 +26,19 @@ class BitNewtonTask:
     message: str = ""
 
 
+class SourceIPAdapter(HTTPAdapter):
+    def __init__(self, source_ip: str, *args, **kwargs):
+        self.source_ip = source_ip
+        super().__init__(*args, **kwargs)
+
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        if self.source_ip:
+            pool_kwargs["source_address"] = (self.source_ip, 0)
+        return super().init_poolmanager(
+            connections, maxsize, block=block, **pool_kwargs
+        )
+
+
 class BitNewtonASR:
     """
     Клиент Bit.Newton ASR (bit-asr.1bitai.ru).
@@ -35,11 +49,22 @@ class BitNewtonASR:
     - GET /get_file (task_id, type?, header token)
     """
 
-    def __init__(self, base_url: str, token: str, timeout_sec: int = 120):
+    def __init__(
+        self,
+        base_url: str,
+        token: str,
+        timeout_sec: int = 120,
+        source_ip: str = "",
+    ):
         self.base_url = (base_url or "").rstrip("/")
         self.token = token
         self.timeout_sec = timeout_sec
+        self.source_ip = (source_ip or "").strip()
         self.session = requests.Session()
+        if self.source_ip:
+            adapter = SourceIPAdapter(self.source_ip)
+            self.session.mount("http://", adapter)
+            self.session.mount("https://", adapter)
 
     @staticmethod
     def _raise_for_auth_if_needed(status_code: int, body: str, where: str) -> None:
@@ -161,4 +186,12 @@ def env_bitnewton_asr() -> BitNewtonASR | None:
     if not token:
         return None
     timeout_sec = int(os.getenv("BITNEWTON_HTTP_TIMEOUT_SEC", "300") or 300)
-    return BitNewtonASR(base_url=base_url, token=token, timeout_sec=timeout_sec)
+    source_ip = (
+        os.getenv("BITNEWTON_SOURCE_IP", "") or os.getenv("BITRIX24_SOURCE_IP", "")
+    ).strip()
+    return BitNewtonASR(
+        base_url=base_url,
+        token=token,
+        timeout_sec=timeout_sec,
+        source_ip=source_ip,
+    )

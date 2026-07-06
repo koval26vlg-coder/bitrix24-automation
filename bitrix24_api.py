@@ -1,4 +1,5 @@
 import asyncio
+import os
 import random
 from typing import Any
 
@@ -17,9 +18,16 @@ class Bitrix24API:
             raise ValueError("Webhook URL не настроен. Проверьте файл .env")
 
         self.readonly = readonly
+        source_ip = (os.getenv("BITRIX24_SOURCE_IP", "") or "").strip()
+        transport = None
+        if source_ip:
+            transport = httpx.AsyncHTTPTransport(local_address=source_ip)
+            logger.info(f"[NET] Bitrix24API source IP bind enabled: {source_ip}")
+
         self.client = httpx.AsyncClient(
             headers={"Content-Type": "application/json"},
             timeout=float(getattr(config, "BITRIX24_TIMEOUT_SEC", 30) or 30),
+            transport=transport,
         )
 
     async def __aenter__(self):
@@ -42,7 +50,10 @@ class Bitrix24API:
                 "crm.activity.get",
                 "crm.activity.list",
                 "crm.category.list",
+                "crm.company.get",
+                "crm.company.list",
                 "crm.contact.get",
+                "crm.deal.fields",
                 "crm.deal.get",
                 "crm.deal.list",
                 "crm.dealcategory.list",

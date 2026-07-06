@@ -62,8 +62,6 @@ def test_flatten_results_writes_conversation_intelligence_sheets(monkeypatch, tm
     xlsx = flatten_results(rows=[_sample_row()], manager_summary=[])
     workbook = load_workbook(xlsx, read_only=True)
 
-    assert "Карта разговора" in workbook.sheetnames
-    assert "Возражения" in workbook.sheetnames
-    assert "Эмоциональные риски" in workbook.sheetnames
-    assert "Факторы конверсии" in workbook.sheetnames
-    assert "Рекомендации менеджерам" in workbook.sheetnames
+    assert "События_звонков" in workbook.sheetnames
+    assert "Факторы_и_отказы" in workbook.sheetnames
+    assert "Менеджеры" in workbook.sheetnames

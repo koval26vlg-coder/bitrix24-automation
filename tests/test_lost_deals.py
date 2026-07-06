@@ -159,6 +159,5 @@ def test_flatten_results_writes_lost_deal_sheets(monkeypatch, tmp_path):
 
     workbook = load_workbook(xlsx, read_only=True)
 
-    assert "Проигранные сделки" in workbook.sheetnames
-    assert "Причины отказов" in workbook.sheetnames
-    assert "Рост конверсии" in workbook.sheetnames
+    assert "Сделки" in workbook.sheetnames
+    assert "Факторы_и_отказы" in workbook.sheetnames

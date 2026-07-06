@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -17,45 +18,224 @@ from pipelines.scoring import (
     recalculate_overall_score,
 )
 
+_COMMENT_STOPWORDS = {
+    "если",
+    "или",
+    "для",
+    "что",
+    "как",
+    "это",
+    "его",
+    "она",
+    "они",
+    "мы",
+    "вы",
+    "нам",
+    "вам",
+    "будет",
+    "быть",
+    "клиент",
+    "клиента",
+    "менеджер",
+    "звонок",
+    "сделка",
+    "сделки",
+}
+
+
+def _text_tokens(text: str) -> set[str]:
+    return {
+        token
+        for token in re.findall(r"[a-zA-Zа-яА-Я0-9]{4,}", (text or "").lower())
+        if token not in _COMMENT_STOPWORDS
+    }
+
+
+def _next_step_text(step: dict[str, Any]) -> str:
+    return " ".join(
+        str(step.get(key) or "").strip()
+        for key in ("SUBJECT", "DESCRIPTION", "COMMENTS", "COMMENT")
+        if str(step.get(key) or "").strip()
+    ).strip()
+
+
+def _next_step_comment_text(step: dict[str, Any]) -> str:
+    comment = " ".join(
+        str(step.get(key) or "").strip()
+        for key in ("DESCRIPTION", "COMMENTS", "COMMENT")
+        if str(step.get(key) or "").strip()
+    ).strip()
+    if comment:
+        return comment
+    return str(step.get("SUBJECT") or "").strip()
+
+
+def _parse_deadline(raw: Any) -> datetime | None:
+    if not raw:
+        return None
+    try:
+        return datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _deadline_not_overdue(raw: Any) -> bool:
+    deadline = _parse_deadline(raw)
+    if deadline is None:
+        return False
+    now = datetime.now(deadline.tzinfo) if deadline.tzinfo else datetime.now()
+    return deadline >= now
+
+
+def _comment_matches_call(comment: str, transcript: str) -> bool:
+    comment_tokens = _text_tokens(comment)
+    transcript_tokens = _text_tokens(transcript)
+    if not comment_tokens or not transcript_tokens:
+        return False
+    common = comment_tokens & transcript_tokens
+    if len(common) >= 2:
+        return True
+    if len(common) >= 1 and len(comment_tokens) <= 4:
+        return True
+
+    semantic_pairs = [
+        r"(кп|предлож\w*|коммерческ\w*|отправ\w*|направ\w*|вышл\w*)",
+        r"(перезвон\w*|созвон\w*|связ\w*|контакт\w*)",
+        r"(счет|сч[её]т|оплат\w*|платеж\w*)",
+        r"(договор\w*|документ\w*)",
+        r"(уточн\w*|соглас\w*|провер\w*)",
+    ]
+    comment_l = comment.lower()
+    transcript_l = transcript.lower()
+    return any(re.search(pattern, comment_l) and re.search(pattern, transcript_l) for pattern in semantic_pairs)
+
+
+def _best_matching_comment(comments: list[str], next_steps: list[dict[str, Any]], text: str) -> str:
+    crm_texts = [str(comment or "").strip() for comment in comments if str(comment or "").strip()]
+    crm_texts.extend(
+        _next_step_text(step) for step in next_steps if _next_step_text(step)
+    )
+    for comment in crm_texts:
+        if _comment_matches_call(comment, text):
+            return comment
+    return ""
+
+
+def _next_step_summary(next_steps: list[dict[str, Any]]) -> str:
+    parts: list[str] = []
+    for step in next_steps[:3]:
+        subject = str(step.get("SUBJECT") or "").strip()
+        deadline = str(step.get("DEADLINE") or step.get("END_TIME") or "").strip()
+        comment = _next_step_comment_text(step)
+        item = subject or comment or f"ID {step.get('ID')}"
+        if deadline:
+            item = f"{item}; срок: {deadline}"
+        parts.append(item)
+    return " | ".join(parts)
+
 
 def compute_deal_quality(
-    deal: dict[str, Any], comments: list[str], kpi: dict[str, Any]
+    deal: dict[str, Any],
+    comments: list[str],
+    kpi: dict[str, Any],
+    *,
+    transcript_text: str = "",
+    next_steps: list[dict[str, Any]] | None = None,
+    short_call_without_conversation: bool = False,
 ) -> dict[str, Any]:
-    weights: dict[str, Any] = kpi.get("deal_quality_weights", {})
     has_contact = bool(deal.get("CONTACT_ID") or deal.get("COMPANY_ID"))
     has_amount = bool(str(deal.get("OPPORTUNITY") or "").strip() not in {"", "0", "0.00"})
     has_title = bool(str(deal.get("TITLE") or "").strip())
-    has_next_step = bool(comments)
-    score = 0
-    score += int(weights.get("has_contact", 25)) if has_contact else 0
-    score += int(weights.get("has_amount", 25)) if has_amount else 0
-    score += int(weights.get("has_title", 25)) if has_title else 0
-    score += int(weights.get("has_comments", 25)) if has_next_step else 0
-    contact_text = "да" if has_contact else "нет"
-    amount_text = "да" if has_amount else "нет"
-    title_text = "да" if has_title else "нет"
-    next_step_text = "да" if has_next_step else "нет"
+    weights: dict[str, Any] = kpi.get("deal_quality_weights", {})
+    comment_weight = float(weights.get("comment_matches_call", 40))
+    next_step_weight = float(weights.get("has_next_step_activity", 30))
+    next_step_comment_weight = float(weights.get("next_step_has_comment", 20))
+    next_step_deadline_weight = float(weights.get("next_step_not_overdue", 10))
+    next_steps = next_steps or []
+    active_next_steps = [step for step in next_steps if isinstance(step, dict)]
+    has_next_step_activity = bool(active_next_steps)
+    next_step_has_comment = any(bool(_next_step_comment_text(step)) for step in active_next_steps)
+    next_step_not_overdue = any(
+        _deadline_not_overdue(step.get("DEADLINE") or step.get("END_TIME"))
+        for step in active_next_steps
+    )
+    matching_comment = _best_matching_comment(comments, active_next_steps, transcript_text)
+    has_relevant_comment = bool(matching_comment)
+
+    if short_call_without_conversation:
+        score = 0.0
+        short_next_step_weight = 40.0
+        short_comment_weight = 30.0
+        short_deadline_weight = 30.0
+        score += short_next_step_weight if has_next_step_activity else 0.0
+        score += short_comment_weight if next_step_has_comment else 0.0
+        score += short_deadline_weight if next_step_not_overdue else 0.0
+        details = (
+            "Короткий звонок без полноценного разговора: оценивается не содержание звонка, "
+            "а контроль следующего касания. "
+            f"Создано дело/следующий шаг: {'да' if has_next_step_activity else 'нет'} "
+            f"({short_next_step_weight:g} баллов); "
+            f"в деле есть комментарий/описание: {'да' if next_step_has_comment else 'нет'} "
+            f"({short_comment_weight:g} баллов); "
+            f"срок дела не просрочен: {'да' if next_step_not_overdue else 'нет'} "
+            f"({short_deadline_weight:g} баллов)."
+        )
+        has_comments = next_step_has_comment
+    else:
+        score = 0.0
+        score += comment_weight if has_relevant_comment else 0.0
+        score += next_step_weight if has_next_step_activity else 0.0
+        score += next_step_comment_weight if next_step_has_comment else 0.0
+        score += next_step_deadline_weight if next_step_not_overdue else 0.0
+        details = (
+            "Критерии заполнения сделки: "
+            f"комментарий соответствует содержанию звонка: {'да' if has_relevant_comment else 'нет'} "
+            f"({comment_weight:g} баллов); "
+            f"создано дело/следующий шаг: {'да' if has_next_step_activity else 'нет'} "
+            f"({next_step_weight:g} баллов); "
+            f"в деле есть комментарий/описание: {'да' if next_step_has_comment else 'нет'} "
+            f"({next_step_comment_weight:g} баллов); "
+            f"срок дела не просрочен: {'да' if next_step_not_overdue else 'нет'} "
+            f"({next_step_deadline_weight:g} баллов). "
+            "Контакт/компания, сумма и название сделки не учитываются."
+        )
+        has_comments = has_relevant_comment
+
+    score = round(score, 2)
     details = (
-        f"Контакт/компания: {contact_text} ({int(weights.get('has_contact', 25))} баллов); "
-        f"сумма: {amount_text} ({int(weights.get('has_amount', 25))} баллов); "
-        f"название сделки: {title_text} ({int(weights.get('has_title', 25))} баллов); "
-        f"комментарии или следующий шаг в CRM: {next_step_text} "
-        f"({int(weights.get('has_comments', 25))} баллов)."
+        details
+        + (
+            f" Следующее дело: {_next_step_summary(active_next_steps)}."
+            if active_next_steps
+            else " Следующее дело не найдено."
+        )
     )
     return {
-        "deal_quality_score": float(score),
+        "deal_quality_score": score,
         "deal_quality_details": details,
         "has_contact": has_contact,
         "has_amount": has_amount,
         "has_title": has_title,
-        "has_comments": has_next_step,
+        "has_comments": has_comments,
+        "has_relevant_crm_comment": has_relevant_comment,
+        "crm_comment_matches_call": has_relevant_comment,
+        "crm_comment_match_text": matching_comment,
+        "has_next_step_activity": has_next_step_activity,
+        "next_step_activity_has_comment": next_step_has_comment,
+        "next_step_activity_not_overdue": next_step_not_overdue,
+        "next_step_activity_summary": _next_step_summary(active_next_steps),
+        "deal_quality_short_call_mode": bool(short_call_without_conversation),
     }
 
 
 def crm_call_alignment(
-    deal: dict[str, Any], text: str, comments: list[str], kpi: dict[str, Any]
+    deal: dict[str, Any],
+    text: str,
+    comments: list[str],
+    kpi: dict[str, Any],
+    *,
+    next_steps: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    weights: dict[str, Any] = kpi.get("alignment_weights", {})
     transcript = (text or "").lower()
     title_words = [
         word
@@ -64,32 +244,27 @@ def crm_call_alignment(
     title_hits = sum(1 for word in title_words if word in transcript)
     amount = str(deal.get("OPPORTUNITY") or "").split(".")[0]
     amount_mentioned = bool(amount and amount != "0" and amount in transcript)
-    comments_text = " ".join(comments).lower()
+    next_steps = next_steps or []
+    crm_notes = list(comments)
+    crm_notes.extend(_next_step_text(step) for step in next_steps if _next_step_text(step))
+    comments_text = " ".join(crm_notes).lower()
     next_step_re = (
         r"\b(перезвон\w*|встреч\w*|созвон\w*|отправ\w*|вышл\w*|уточн\w*|согласу\w*|кп|договор\w*)\b"
     )
     next_step_synced = bool(
         re.search(next_step_re, transcript) and re.search(next_step_re, comments_text)
     )
-    amount_weight = int(weights.get("amount_mentioned", 30))
-    next_step_weight = int(weights.get("next_step_synced", 40))
-    raw_score = (amount_weight if amount_mentioned else 0) + (
-        next_step_weight if next_step_synced else 0
-    )
-    total_weight = max(1, amount_weight + next_step_weight)
-    align_score = round(raw_score * 100.0 / total_weight, 2)
+    align_score = 100.0 if next_step_synced else 0.0
     next_step_details = (
         "Да: следующий шаг звучит в разговоре и зафиксирован в комментариях/таймлайне CRM."
         if next_step_synced
         else "Нет: следующий шаг либо не прозвучал в разговоре, либо не зафиксирован в CRM. Это мешает контролировать дальнейшее действие по клиенту."  # noqa: E501
     )
-    amount_text = "да" if amount_mentioned else "нет"
     next_step_text = "да" if next_step_synced else "нет"
     details = (
-        "Связь звонка с CRM показывает, совпадает ли содержание разговора с данными сделки: "
-        f"сумма упомянута: {amount_text}; "
+        "Связь звонка с CRM показывает, зафиксирован ли следующий шаг из разговора в CRM: "
         f"следующий шаг синхронизирован с CRM: {next_step_text}. "
-        "Совпадения с названием сделки больше не выводятся в отчет как отдельная метрика."
+        "Сумма и название сделки не снижают эту оценку."
     )
     return {
         "alignment_score": float(align_score),
@@ -199,6 +374,8 @@ async def apply_scores(
     kpi: dict[str, Any],
     suffix: str = "",
     codex_evaluator: Any = None,
+    next_steps: list[dict[str, Any]] | None = None,
+    short_call_without_conversation: bool = False,
 ) -> None:
     first_h = row.get("first_response_hours")
     first_m = row.get("first_response_minutes")
@@ -210,9 +387,16 @@ async def apply_scores(
         first_h is not None and float(first_h) <= first_response_sla
     )
 
-    deal_q = compute_deal_quality(deal, comments, kpi)
+    deal_q = compute_deal_quality(
+        deal,
+        comments,
+        kpi,
+        transcript_text=text,
+        next_steps=next_steps,
+        short_call_without_conversation=short_call_without_conversation,
+    )
     call_q = evaluate_call_text(text, kpi)
-    align = crm_call_alignment(deal, text, comments, kpi)
+    align = crm_call_alignment(deal, text, comments, kpi, next_steps=next_steps)
     for key, value in deal_q.items():
         row[f"{key}{suffix}"] = value
     for key, value in call_q.items():
@@ -243,15 +427,30 @@ async def finalize_transcript_analysis(
     kpi: dict[str, Any],
     kpi_cmp: dict[str, Any] | None,
     codex_evaluator: Any = None,
+    next_steps: list[dict[str, Any]] | None = None,
 ) -> None:
     analysis_text = merged_transcript_text(bitnewton_text or "", bitrix_text or "")
     row["combined_transcript_text"] = analysis_text
     await apply_scores(
-        row, deal, comments, analysis_text, kpi, suffix="", codex_evaluator=codex_evaluator
+        row,
+        deal,
+        comments,
+        analysis_text,
+        kpi,
+        suffix="",
+        codex_evaluator=codex_evaluator,
+        next_steps=next_steps,
     )
     if kpi_cmp is not None:
         await apply_scores(
-            row, deal, comments, analysis_text, kpi_cmp, suffix="_cmp", codex_evaluator=None
+            row,
+            deal,
+            comments,
+            analysis_text,
+            kpi_cmp,
+            suffix="_cmp",
+            codex_evaluator=None,
+            next_steps=next_steps,
         )
         row["overall_score_delta"] = round(
             float(row.get("overall_score_cmp") or 0) - float(row.get("overall_score") or 0), 2

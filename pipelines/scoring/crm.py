@@ -36,51 +36,58 @@ def evaluate_crm_checklist(
         return row.get(key)
 
     items: list[dict[str, Any]] = []
+    short_call_mode = bool(get("deal_quality_short_call_mode"))
+    if not short_call_mode:
+        comment_matches = bool(get("crm_comment_matches_call") or get("has_relevant_crm_comment"))
+        items.append(
+            _crm_item(
+                "crm_comment_matches_call",
+                "Заполнение сделки",
+                "Комментарий в CRM соответствует содержанию звонка",
+                1.0 if comment_matches else 0.0,
+                (
+                    "Комментарий/описание в CRM связано с содержанием разговора."
+                    if comment_matches
+                    else "Не найден комментарий CRM, связанный с содержанием разговора."
+                ),
+            )
+        )
     items.append(
         _crm_item(
-            "crm_has_contact",
+            "crm_has_next_step_activity",
             "Заполнение сделки",
-            "В сделке указан контакт или компания",
-            1.0 if get("has_contact") else 0.0,
+            "Создан следующий шаг/дело в CRM",
+            1.0 if get("has_next_step_activity") else 0.0,
             (
-                "Контакт/компания есть."
-                if get("has_contact")
-                else "В сделке нет контакта или компании."
+                "Следующий шаг/дело создано."
+                if get("has_next_step_activity")
+                else "Открытое дело следующего касания не найдено."
             ),
         )
     )
     items.append(
         _crm_item(
-            "crm_has_amount",
+            "crm_next_step_has_comment",
             "Заполнение сделки",
-            "В сделке указана сумма",
-            1.0 if get("has_amount") else 0.0,
+            "В деле следующего шага есть комментарий/описание",
+            1.0 if get("next_step_activity_has_comment") else 0.0,
             (
-                "Сумма заполнена."
-                if get("has_amount")
-                else "Сумма сделки не заполнена или равна нулю."
+                "В следующем деле есть комментарий/описание."
+                if get("next_step_activity_has_comment")
+                else "В следующем деле нет понятного комментария/описания."
             ),
         )
     )
     items.append(
         _crm_item(
-            "crm_has_title",
+            "crm_next_step_not_overdue",
             "Заполнение сделки",
-            "Название сделки заполнено",
-            1.0 if get("has_title") else 0.0,
-            "Название заполнено." if get("has_title") else "Название сделки пустое.",
-        )
-    )
-    items.append(
-        _crm_item(
-            "crm_has_comments",
-            "Заполнение сделки",
-            "В CRM есть комментарий или следующий шаг",
-            1.0 if get("has_comments") else 0.0,
+            "Срок следующего дела не просрочен",
+            1.0 if get("next_step_activity_not_overdue") else 0.0,
             (
-                "В таймлайне есть комментарии/следующие действия."
-                if get("has_comments")
-                else "В CRM не найден комментарий или следующий шаг."
+                "Срок следующего дела актуален."
+                if get("next_step_activity_not_overdue")
+                else "Срок следующего дела отсутствует или уже просрочен."
             ),
         )
     )
@@ -111,26 +118,6 @@ def evaluate_crm_checklist(
                     "Следующий шаг прозвучал, но не подтвержден в CRM."
                     if next_step_in_call
                     else "Следующий шаг не найден ни в разговоре, ни в CRM."
-                )
-            ),
-        )
-    )
-
-    amount_mentioned = bool(get("amount_mentioned"))
-    has_amount = bool(get("has_amount"))
-    items.append(
-        _crm_item(
-            "crm_amount_aligned",
-            "Связь звонка с CRM",
-            "Сумма сделки подтверждается разговором",
-            1.0 if amount_mentioned else (0.5 if has_amount else 0.0),
-            (
-                "Сумма из сделки встречается в разговоре."
-                if amount_mentioned
-                else (
-                    "Сумма есть в CRM, но в разговоре явно не подтверждена."
-                    if has_amount
-                    else "Сумма не заполнена и не подтверждена разговором."
                 )
             ),
         )
@@ -252,6 +239,7 @@ def recalculate_overall_score(row: dict[str, Any], kpi: dict[str, Any], suffix: 
     row[f"overall_score_details{suffix}"] = (
         f"Итог = качество разговора {call_weight * 100:.0f}% "
         f"+ ведение CRM {crm_weight * 100:.0f}%. "
-        "Ведение CRM считается по CRM-чек-листу: заполнение карточки, наличие звонка менеджера, "
-        "синхронизация следующего шага, связь разговора с данными сделки и движение по воронке."
+        "Ведение CRM считается по CRM-чек-листу: комментарий, связанный со звонком, "
+        "созданное дело следующего шага с актуальным сроком, наличие звонка менеджера, "
+        "синхронизация следующего шага и движение по воронке."
     )

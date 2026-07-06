@@ -6,6 +6,9 @@ from typing import Any
 from logging_setup import get_logger
 from pipelines.calls import (
     compute_discipline_metrics,
+    extract_bitrix_gpt_summaries,
+    fetch_deal_activities,
+    fetch_open_next_step_activities,
     fetch_timeline_comments,
     guess_duration_sec,
     list_deal_call_activities,
@@ -60,6 +63,19 @@ async def _deal_get(ctx: ProcessingContext, deal_id: str) -> dict[str, Any]:
     return await deal_get(ctx.api, deal_id)
 
 
+async def _fetch_deal_activities(ctx: ProcessingContext, deal_id: str) -> list[dict[str, Any]]:
+    if ctx.vibe is not None and bool(getattr(ctx.args, "vibecode_read", True)):
+        try:
+            activities: list[dict[str, Any]] = ctx.vibe.list_deal_activities(deal_id, limit=200)
+            return activities
+        except Exception as e:
+            print(
+                f"[WARN] VibeCode activities/search (full) не сработал, fallback на Bitrix REST: {e}",
+                flush=True,
+            )
+    return await fetch_deal_activities(ctx.api, deal_id=deal_id, limit=200)
+
+
 def _build_missing_deal_row(
     *,
     ctx: ProcessingContext,
@@ -102,6 +118,12 @@ def _build_missing_deal_row(
         "call_quality_conclusion": "Оценить разговор невозможно: сделка не найдена или недоступна.",
         "conversation_meaning": "Нет данных: карточка сделки недоступна через Bitrix24 API.",
         "recommendations": "Проверить, удалена ли сделка, перемещена ли она в другую воронку, и есть ли доступ у webhook.",  # noqa: E501
+        "bitrix_chat_summary": "",
+        "bitrix_call_summary": "",
+        "bitrix_combined_summary": "",
+        "bitrix_overall_meaning": "",
+        "bitrix_summary_sources": "",
+        "bitrix_summary_found": False,
     }
     if ctx.kpi_cmp is not None:
         row["overall_score_cmp"] = 0.0
@@ -229,11 +251,25 @@ async def process_deal(
         print(f"[DEAL NOT FOUND] OK={base_ok + ok} ERR={base_err + err}: {e}", flush=True)
         return DealProcessingResult(rows=rows, ok=ok, err=err)
 
-    comments = await fetch_timeline_comments(ctx.api, deal_id)
+    comments, next_steps, deal_activities = await asyncio.gather(
+        fetch_timeline_comments(ctx.api, deal_id),
+        fetch_open_next_step_activities(ctx.api, deal_id),
+        _fetch_deal_activities(ctx, deal_id),
+    )
+    bitrix_gpt_summaries = extract_bitrix_gpt_summaries(
+        comments,
+        activities=deal_activities,
+    )
     # Используем model_dump(by_alias=True, mode="json") для совместимости с существующими функциями
     deal_dict = deal.model_dump(by_alias=True, mode="json")
     discipline = compute_discipline_metrics(deal_dict, acts, ctx.kpi)
-    deal_quality = compute_deal_quality(deal_dict, comments, ctx.kpi)
+    deal_quality = compute_deal_quality(
+        deal_dict,
+        comments,
+        ctx.kpi,
+        next_steps=next_steps,
+        short_call_without_conversation=bool(skipped_short_acts and not acts),
+    )
     manager_id = deal.assigned_by_id
 
     if not acts:
@@ -242,11 +278,13 @@ async def process_deal(
             deal_id=deal_id,
             deal=deal_dict,
             comments=comments,
+            next_steps=next_steps,
             discipline=discipline,
             deal_quality=deal_quality,
             manager_id=manager_id,
             call_center_acts=call_center_acts,
             skipped_short_calls=len(skipped_short_acts),
+            bitrix_gpt_summaries=bitrix_gpt_summaries,
         )
         rows.append(row)
         err += 1
@@ -267,12 +305,14 @@ async def process_deal(
             deal_id=deal_id,
             deal=deal_dict,
             comments=comments,
+            next_steps=next_steps,
             discipline=discipline,
             deal_quality=deal_quality,
             manager_id=manager_id,
             call_center_acts=call_center_acts,
             activity=activity_dict,
             skipped_short_calls=len(skipped_short_acts),
+            bitrix_gpt_summaries=bitrix_gpt_summaries,
         )
         if success:
             ok += 1

@@ -92,6 +92,6 @@ def test_flatten_results_writes_script_scoring_sheets(monkeypatch, tmp_path):
     xlsx = flatten_results(rows=[_row()], manager_summary=[])
     workbook = load_workbook(xlsx, read_only=True)
 
-    assert "Соответствие скриптам" in workbook.sheetnames
-    assert "Оценка по скрипту" in workbook.sheetnames
-    assert "Провалы скрипта" in workbook.sheetnames
+    assert "Скрипты_итоги" in workbook.sheetnames
+    assert "Скрипты_шаги" in workbook.sheetnames
+    assert "Ошибки_менеджеров" in workbook.sheetnames

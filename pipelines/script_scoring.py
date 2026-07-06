@@ -650,6 +650,7 @@ def build_script_gap_rows(script_rows: list[dict[str, Any]]) -> list[dict[str, A
             "script_gap_count": 0,
             "script_partial_count": 0,
             "script_calls": 0,
+            "_deal_urls": set(),
             "_weighted_gap": 0.0,
             "script_training_recommendation": "",
         }
@@ -675,9 +676,13 @@ def build_script_gap_rows(script_rows: list[dict[str, Any]]) -> list[dict[str, A
         if status == "Провал":
             bucket["script_gap_count"] += 1
             bucket["_weighted_gap"] += weight
+            if row.get("deal_url"):
+                bucket["_deal_urls"].add(str(row.get("deal_url")))
         elif status == "Частично":
             bucket["script_partial_count"] += 1
             bucket["_weighted_gap"] += weight * 0.5
+            if row.get("deal_url"):
+                bucket["_deal_urls"].add(str(row.get("deal_url")))
 
     out: list[dict[str, Any]] = []
     for bucket in buckets.values():
@@ -690,6 +695,7 @@ def build_script_gap_rows(script_rows: list[dict[str, Any]]) -> list[dict[str, A
         out.append(
             {
                 "manager_name": bucket["manager_name"],
+                "deal_url": "\n".join(sorted(bucket.get("_deal_urls") or [])),
                 "script_profile_name": bucket["script_profile_name"],
                 "script_block": bucket["script_block"],
                 "script_step": bucket["script_step"],

@@ -28,6 +28,15 @@ async def create_bitrix_api(args: Any = None) -> Bitrix24API:
 
 def create_vibecode_client(args: Any) -> Any:
     """Создает клиент VibeCode API, если это разрешено аргументами."""
+    source = str(getattr(args, "bitrix_source", "rest") or "rest").strip().lower()
+    if source == "mcp":
+        logger.warning(
+            "[MCP] MCP Bitrix из apidocs используется для документации/tools, "
+            "не для чтения данных CRM. Для runtime переключаюсь на REST."
+        )
+        return None
+    if source == "rest":
+        return None
     if not bool(getattr(args, "use_vibecode", True)):
         return None
     readonly = bool(getattr(args, "dry_run", False))

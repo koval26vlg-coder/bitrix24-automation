@@ -16,10 +16,10 @@ DEFAULT_KPI_CONFIG: dict[str, Any] = {
         "crm_alignment_split": {"deal_quality": 0.6, "alignment": 0.4},
     },
     "deal_quality_weights": {
-        "has_contact": 25,
-        "has_amount": 25,
-        "has_title": 25,
-        "has_comments": 25,
+        "comment_matches_call": 40,
+        "has_next_step_activity": 30,
+        "next_step_has_comment": 20,
+        "next_step_not_overdue": 10,
     },
     "call_quality_weights": {
         "greeting": 25,
@@ -30,8 +30,8 @@ DEFAULT_KPI_CONFIG: dict[str, Any] = {
     "alignment_weights": {
         "title_hit": 10,
         "title_hit_cap": 40,
-        "amount_mentioned": 30,
-        "next_step_synced": 30,
+        "amount_mentioned": 0,
+        "next_step_synced": 100,
     },
     "patterns": {
         "greeting": [r"\b(добрый|здравств\w*|привет)\b"],

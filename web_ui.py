@@ -510,19 +510,40 @@ with st.sidebar:
     st.caption("Для Bit.Newton нужен `BITNEWTON_TOKEN` в `.env`.")
 
     st.divider()
+    st.subheader("Источник данных Bitrix")
+    bitrix_source_label = st.selectbox(
+        "Источник данных",
+        options=[
+            "Bitrix REST (webhook)",
+            "VibeCode API (/v1/*)",
+            "Bitrix MCP (документация)",
+        ],
+        index=0,
+        help=(
+            "MCP Bitrix в текущем виде используется как документационный сервер. "
+            "Для реального чтения сделок/звонков runtime работает через REST или VibeCode."
+        ),
+    )
+    bitrix_source = (
+        "vibecode"
+        if bitrix_source_label.startswith("VibeCode")
+        else ("mcp" if bitrix_source_label.startswith("Bitrix MCP") else "rest")
+    )
+
+    st.divider()
     st.subheader("VibeCode API")
     vibecode_key_present = bool(os.getenv("VIBECODE_API_KEY", "").strip())
-    use_vibecode = st.checkbox(
-        "Использовать VibeCode API",
-        value=vibecode_key_present,
-        help="Ключ берется из VIBECODE_API_KEY в .env. Если VibeCode не сработает, пайплайн вернется к обычному Bitrix REST.",  # noqa: E501
-    )
-    if not vibecode_key_present:
-        st.caption("VIBECODE_API_KEY не найден в `.env`; VibeCode будет пропущен.")
+    use_vibecode = bitrix_source == "vibecode"
+    if bitrix_source == "mcp":
+        st.info(
+            "MCP Bitrix — документационный источник. Для runtime сделок и звонков будет использован REST."
+        )
+    if use_vibecode and not vibecode_key_present:
+        st.caption("VIBECODE_API_KEY не найден в `.env`; будет fallback на Bitrix REST.")
     vibecode_read = st.checkbox(
         "Читать сделки, звонки и стадии через VibeCode",
         value=True,
-        disabled=not use_vibecode,
+        disabled=(not use_vibecode),
     )
     vibecode_audio_download = st.checkbox(
         "Скачивать записи через VibeCode Disk",
@@ -679,13 +700,14 @@ run_mode = st.radio(
     [
         "Обычная обработка",
         "Повторить только ошибки из отчета",
+        "Повторить очередь ошибок Bit.Newton",
         "Переоценить отчет без повторной расшифровки",
     ],
     index=0,
 )
 report_files = available_report_json_files()
 selected_report: Path | None = None
-if run_mode != "Обычная обработка":
+if run_mode in {"Повторить только ошибки из отчета", "Переоценить отчет без повторной расшифровки"}:
     if report_files:
         selected_report = st.selectbox(
             "JSON отчет",
@@ -719,6 +741,8 @@ if run:
             st.error("Выбери JSON-отчет, из которого нужно повторить ошибки.")
             st.stop()
         args += ["--retry-errors-from", str(selected_report)]
+    elif run_mode == "Повторить очередь ошибок Bit.Newton":
+        args += ["--retry-queued-errors"]
     elif mode == "Одна сделка по URL":
         args += ["--mode", "single", "--deal-url", deal_url]
     else:
@@ -768,6 +792,7 @@ if run:
         args += ["--mode", "filter", "--filter-json", str(filter_path), "--limit", str(int(limit))]
 
     if run_mode != "Переоценить отчет без повторной расшифровки":
+        args += ["--bitrix-source", bitrix_source]
         if not use_bitnewton and not dry_run:
             st.error(
                 "Для обычной обработки и повтора ошибок нужен Bit.Newton. Для работы без Bit.Newton выбери режим переоценки."  # noqa: E501

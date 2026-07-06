@@ -45,7 +45,7 @@ def build_deal_conclusions(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
 
         issues: list[str] = []
         if deal_quality < 100:
-            issues.append("не полностью заполнена сделка")
+            issues.append("не выполнены критерии CRM-комментария и следующего дела")
         if needs_ratio < 0.5:
             issues.append("слабо выявлены потребности")
         if next_step_ratio < 0.5:
@@ -152,6 +152,29 @@ def _short_error(text: Any, limit: int = 550) -> str:
     return raw[:limit] + ("..." if len(raw) > limit else "")
 
 
+def _build_bitrix_deal_summary(
+    *,
+    chat_summary: str,
+    call_summary: str,
+    stage_name: str,
+    next_step_summary: str,
+) -> tuple[str, str]:
+    parts: list[str] = []
+    if chat_summary:
+        parts.append(f"Чат: {chat_summary}")
+    if call_summary:
+        parts.append(f"Звонок: {call_summary}")
+    combined_summary = " ".join(parts).strip()
+
+    stage_parts: list[str] = []
+    if stage_name:
+        stage_parts.append(f"Текущая стадия: {stage_name}.")
+    if next_step_summary:
+        stage_parts.append(f"Следующий шаг в CRM: {next_step_summary}.")
+    stage_progress_summary = " ".join(stage_parts).strip()
+    return combined_summary, stage_progress_summary
+
+
 def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     grouped: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
@@ -242,7 +265,7 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if asr_skipped_calls:
             issues.append(f"без новой расшифровки Bit.Newton: {asr_skipped_calls}")
         if deal_quality < 100:
-            issues.append("не полностью заполнена сделка")
+            issues.append("не выполнены критерии CRM-комментария и следующего дела")
         if scored and needs_ratio < 0.5:
             issues.append("слабо выявлены потребности")
         if scored and next_step_ratio < 0.5:
@@ -306,6 +329,27 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         if no_call_rows and not call_blocks:
             message = first.get("error") or "Звонков по сделке не найдено."
             call_blocks.append(str(message))
+
+        bitrix_chat_summary = _join_unique(
+            [r.get("bitrix_chat_summary") for r in deal_rows if r.get("bitrix_chat_summary")],
+            sep=" | ",
+        )
+        bitrix_call_summary = _join_unique(
+            [r.get("bitrix_call_summary") for r in deal_rows if r.get("bitrix_call_summary")],
+            sep=" | ",
+        )
+        bitrix_overall_meaning = _join_unique(
+            [r.get("bitrix_overall_meaning") for r in deal_rows if r.get("bitrix_overall_meaning")],
+            sep=" | ",
+        )
+        combined_bitrix_summary, stage_progress_summary = _build_bitrix_deal_summary(
+            chat_summary=bitrix_chat_summary,
+            call_summary=bitrix_call_summary,
+            stage_name=str(first.get("stage_name") or stage_display_name(first.get("stage_id")) or ""),
+            next_step_summary=str(first.get("next_step_activity_summary") or "").strip(),
+        )
+        if not combined_bitrix_summary and bitrix_overall_meaning:
+            combined_bitrix_summary = bitrix_overall_meaning
 
         out.append(
             {
@@ -373,10 +417,20 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     if issues
                     else "Сохранять текущий подход и фиксировать следующий шаг после каждого контакта."  # noqa: E501
                 ),
+                "bitrix_chat_summary": bitrix_chat_summary,
+                "bitrix_call_summary": bitrix_call_summary,
+                "bitrix_combined_summary": combined_bitrix_summary,
+                "bitrix_overall_meaning": bitrix_overall_meaning,
+                "deal_stage_progress_summary": stage_progress_summary,
+                "bitrix_summary_sources": _join_unique(
+                    [r.get("bitrix_summary_sources") for r in deal_rows if r.get("bitrix_summary_sources")],
+                    sep=", ",
+                ),
                 "calls_breakdown": "\n\n".join(call_blocks),
                 "transcripts_combined": "\n\n---\n\n".join(transcript_blocks),
-                "conversation_meaning": _join_unique(
-                    [r.get("conversation_meaning") for r in ok_calls], sep="\n\n"
+                "conversation_meaning": (
+                    _join_unique([r.get("conversation_meaning") for r in ok_calls], sep="\n\n")
+                    or bitrix_overall_meaning
                 ),
                 "improvement_moments_combined": _join_unique(
                     [r.get("improvement_moments") for r in ok_calls]
@@ -446,6 +500,11 @@ def build_call_detail_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                     "next_step_synced_details": row.get("next_step_synced_details"),
                     "call_quality_conclusion": row.get("call_quality_conclusion"),
                     "conversation_meaning": row.get("conversation_meaning"),
+                    "bitrix_chat_summary": row.get("bitrix_chat_summary"),
+                    "bitrix_call_summary": row.get("bitrix_call_summary"),
+                    "bitrix_overall_meaning": row.get("bitrix_overall_meaning"),
+                    "bitrix_combined_summary": row.get("bitrix_combined_summary"),
+                    "bitrix_summary_sources": row.get("bitrix_summary_sources"),
                     "improvement_moments": row.get("improvement_moments"),
                     "unhandled_objections": row.get("unhandled_objections"),
                     "objection_recommendations": row.get("objection_recommendations"),
@@ -593,6 +652,7 @@ def build_manager_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[st
                     "sales_stage_block_name": block_name,
                     "manager_stage_calls": 0,
                     "_deals": set(),
+                    "_deal_urls": set(),
                     "_percent_sum": 0.0,
                     "manager_stage_weak_calls": 0,
                 },
@@ -603,6 +663,8 @@ def build_manager_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[st
             item["_deals"].add(deal_key)
             if percent < 70:
                 item["manager_stage_weak_calls"] += 1
+                if row.get("deal_url"):
+                    item["_deal_urls"].add(str(row.get("deal_url")))
 
     out: list[dict[str, Any]] = []
     for item in agg.values():
@@ -611,6 +673,7 @@ def build_manager_stage_summary_rows(rows: list[dict[str, Any]]) -> list[dict[st
         out.append(
             {
                 "manager_name": item["manager_name"],
+                "deal_url": "\n".join(sorted(item.get("_deal_urls") or [])),
                 "sales_stage_block_name": item["sales_stage_block_name"],
                 "manager_stage_calls": calls,
                 "manager_stage_deals": len(item["_deals"]),
@@ -649,6 +712,7 @@ def build_manager_criterion_gap_rows(rows: list[dict[str, Any]]) -> list[dict[st
                     "checklist_block_name": block_name,
                     "checklist_criterion": criterion,
                     "criterion_calls": 0,
+                    "_deal_urls": set(),
                     "_score_sum": 0.0,
                     "criterion_failed_count": 0,
                     "criterion_partial_count": 0,
@@ -660,8 +724,12 @@ def build_manager_criterion_gap_rows(rows: list[dict[str, Any]]) -> list[dict[st
             bucket["_score_sum"] += score
             if score <= 0:
                 bucket["criterion_failed_count"] += 1
+                if row.get("deal_url"):
+                    bucket["_deal_urls"].add(str(row.get("deal_url")))
             elif score < 1:
                 bucket["criterion_partial_count"] += 1
+                if row.get("deal_url"):
+                    bucket["_deal_urls"].add(str(row.get("deal_url")))
 
     out: list[dict[str, Any]] = []
     for bucket in agg.values():
@@ -672,6 +740,7 @@ def build_manager_criterion_gap_rows(rows: list[dict[str, Any]]) -> list[dict[st
         out.append(
             {
                 "manager_name": bucket["manager_name"],
+                "deal_url": "\n".join(sorted(bucket.get("_deal_urls") or [])),
                 "checklist_block_name": bucket["checklist_block_name"],
                 "checklist_criterion": bucket["checklist_criterion"],
                 "criterion_calls": calls,
@@ -761,6 +830,7 @@ def build_manager_crm_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
                     "crm_checklist_block_name": block_name,
                     "crm_checklist_criterion": criterion,
                     "crm_criterion_deals": 0,
+                    "_deal_urls": set(),
                     "_score_sum": 0.0,
                     "crm_criterion_failed_count": 0,
                     "crm_criterion_partial_count": 0,
@@ -772,8 +842,12 @@ def build_manager_crm_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
             bucket["_score_sum"] += score
             if score <= 0:
                 bucket["crm_criterion_failed_count"] += 1
+                if deal_row.get("deal_url"):
+                    bucket["_deal_urls"].add(str(deal_row.get("deal_url")))
             elif score < 1:
                 bucket["crm_criterion_partial_count"] += 1
+                if deal_row.get("deal_url"):
+                    bucket["_deal_urls"].add(str(deal_row.get("deal_url")))
 
     out: list[dict[str, Any]] = []
     for bucket in agg.values():
@@ -784,6 +858,7 @@ def build_manager_crm_gap_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any
         out.append(
             {
                 "manager_name": bucket["manager_name"],
+                "deal_url": "\n".join(sorted(bucket.get("_deal_urls") or [])),
                 "crm_checklist_block_name": bucket["crm_checklist_block_name"],
                 "crm_checklist_criterion": bucket["crm_checklist_criterion"],
                 "crm_criterion_deals": deals,
@@ -1337,7 +1412,10 @@ def build_manager_summary(
         a["scored_deals"] += 1
         a["overall_score_sum"] += deal_score
         if any(
-            not r.get("has_contact") or not r.get("has_amount") or not r.get("has_comments")
+            not r.get("has_comments")
+            or not r.get("has_next_step_activity")
+            or not r.get("next_step_activity_has_comment")
+            or not r.get("next_step_activity_not_overdue")
             for r in deal_rows
         ):
             a["growth_deal_data"] += 1

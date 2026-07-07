@@ -1,0 +1,23 @@
+# Нормализация переводов строк: код хранится с LF,
+# Windows-скрипты — с CRLF (cmd.exe требует CRLF в .bat).
+* text=auto
+
+*.py text eol=lf
+*.md text eol=lf
+*.toml text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.txt text
+*.sh text eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+*.png binary
+*.jpg binary
+*.xlsx binary
+*.pdf binary
+*.mp3 binary
+*.wav binary

@@ -69,6 +69,16 @@ python bitnewton_sync_to_api.py --mode single --deal-url https://online-kassa.bi
 - `download_resolver.py` и `ui_audio_downloader.py` - скачивание записей.
 - `kpi_config*.json` - профили оценки звонков.
 
+## Дашборд и уведомления
+
+- `kpi_dashboard.py` - Streamlit-дашборд динамики KPI менеджеров по накопленным
+  отчетам: `streamlit run kpi_dashboard.py`.
+- `telegram_notify.py` - отправка сводки последнего отчета в Telegram
+  (нужны `TELEGRAM_BOT_TOKEN` и `TELEGRAM_CHAT_ID` в `.env`).
+  Проверка без отправки: `python telegram_notify.py --dry-run`.
+- `register_report_task.ps1` - регистрация ежедневной задачи Планировщика Windows
+  (отчет + опционально Telegram): `pwsh -File register_report_task.ps1 -SendTelegram`.
+
 ## Документация
 
 - `docs/TROUBLESHOOTING.txt` - диагностика типовых проблем запуска.

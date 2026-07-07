@@ -20,6 +20,14 @@ exclude = [
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B"]
 
+[tool.ruff.lint.per-file-ignores]
+# Автономные скрипты-отчеты: длинные русские строки заголовков и выводов,
+# перенос которых ухудшает читаемость текста отчета.
+"client_requests_analysis.py" = ["E501"]
+"kso_deals_analysis.py" = ["E501"]
+"so_deals_analysis.py" = ["E501"]
+"top_large_invoices_analysis.py" = ["E501"]
+
 [tool.black]
 line-length = 100
 target-version = ["py310"]

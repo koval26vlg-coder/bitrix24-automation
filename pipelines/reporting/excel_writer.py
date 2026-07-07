@@ -5,6 +5,7 @@ from typing import Any
 
 import pandas as pd
 
+from pipelines.reporting.columns import BITRIXGPT_DEAL_SUMMARY_COLUMNS
 from pipelines.reporting.excel import _format_excel_writer, _ru_df
 from pipelines.reporting.optimized import (
     CALL_BASE_COLUMNS,
@@ -24,7 +25,6 @@ from pipelines.reporting.optimized import (
     build_manager_card_rows,
     build_manager_error_rows,
 )
-from pipelines.reporting.columns import BITRIXGPT_DEAL_SUMMARY_COLUMNS
 
 
 def write_excel_report(

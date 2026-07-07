@@ -47,7 +47,9 @@ def _normalize_entry(raw: dict[str, Any]) -> dict[str, Any] | None:
     }
 
 
-def load_bitnewton_retry_queue(path: Path | str = BITNEWTON_RETRY_QUEUE_PATH) -> dict[str, dict[str, Any]]:
+def load_bitnewton_retry_queue(
+    path: Path | str = BITNEWTON_RETRY_QUEUE_PATH,
+) -> dict[str, dict[str, Any]]:
     queue_path = Path(path)
     if not queue_path.exists():
         return {}

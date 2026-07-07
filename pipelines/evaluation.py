@@ -107,7 +107,10 @@ def _comment_matches_call(comment: str, transcript: str) -> bool:
     ]
     comment_l = comment.lower()
     transcript_l = transcript.lower()
-    return any(re.search(pattern, comment_l) and re.search(pattern, transcript_l) for pattern in semantic_pairs)
+    return any(
+        re.search(pattern, comment_l) and re.search(pattern, transcript_l)
+        for pattern in semantic_pairs
+    )
 
 
 def _best_matching_comment(comments: list[str], next_steps: list[dict[str, Any]], text: str) -> str:
@@ -189,7 +192,8 @@ def compute_deal_quality(
         score += next_step_deadline_weight if next_step_not_overdue else 0.0
         details = (
             "Критерии заполнения сделки: "
-            f"комментарий соответствует содержанию звонка: {'да' if has_relevant_comment else 'нет'} "
+            "комментарий соответствует содержанию звонка: "
+            f"{'да' if has_relevant_comment else 'нет'} "
             f"({comment_weight:g} баллов); "
             f"создано дело/следующий шаг: {'да' if has_next_step_activity else 'нет'} "
             f"({next_step_weight:g} баллов); "

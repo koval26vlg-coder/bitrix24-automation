@@ -70,7 +70,8 @@ async def _fetch_deal_activities(ctx: ProcessingContext, deal_id: str) -> list[d
             return activities
         except Exception as e:
             print(
-                f"[WARN] VibeCode activities/search (full) не сработал, fallback на Bitrix REST: {e}",
+                "[WARN] VibeCode activities/search (full) не сработал, "
+                f"fallback на Bitrix REST: {e}",
                 flush=True,
             )
     return await fetch_deal_activities(ctx.api, deal_id=deal_id, limit=200)

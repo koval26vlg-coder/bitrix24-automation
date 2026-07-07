@@ -562,7 +562,7 @@ def write_excel(path: Path, *, summary: list[dict[str, Any]], top: list[dict[str
                 for cell in row:
                     cell.font = body_font
                     cell.alignment = Alignment(vertical="top", wrap_text=True)
-            for idx, col in enumerate(ws.columns, 1):
+            for idx, _col in enumerate(ws.columns, 1):
                 header = str(ws.cell(row=1, column=idx).value or "")
                 width = 18
                 if any(token in header.lower() for token in ("url", "ссылка", "example", "context", "резюме", "evidence", "recommendation", "пример", "вывод")):

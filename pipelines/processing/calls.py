@@ -11,13 +11,13 @@ from pipelines.calls import activity_get, guess_duration_minutes, guess_duration
 from pipelines.deals import deal_url_from_id
 from pipelines.evaluation import apply_scores, finalize_transcript_analysis
 from pipelines.processing.context import ProcessingContext
-from pipelines.scoring import transcript_match_score
-from pipelines.stages import safe_int
 from pipelines.retry_queue import (
     enqueue_bitnewton_retry,
     resolve_bitnewton_retry,
     save_bitnewton_retry_queue,
 )
+from pipelines.scoring import transcript_match_score
+from pipelines.stages import safe_int
 from pipelines.transcription import (
     _save_state_cache,
     _sha256_text,

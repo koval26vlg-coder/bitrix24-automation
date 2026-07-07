@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import html
+import json
 import re
 from datetime import datetime
 from typing import Any
@@ -238,7 +238,10 @@ def extract_bitrix_gpt_summaries(
             comment
             for comment in normalized
             if len(comment) >= 50
-            and any(marker in comment.lower() for marker in ("чат", "telegram", "whatsapp", "мессендж"))
+            and any(
+                marker in comment.lower()
+                for marker in ("чат", "telegram", "whatsapp", "мессендж")
+            )
             and not _looks_like_system_comment(comment)
         ][:2]
 
@@ -275,7 +278,11 @@ def extract_bitrix_gpt_summaries(
                 break
 
     overall_meaning = _build_overall_meaning(fragments, max_result_chars)
-    combined = " ".join(x for x in [f"Чат: {chat_summary}" if chat_summary else "", f"Звонок: {call_summary}" if call_summary else ""] if x).strip()
+    summary_parts = [
+        f"Чат: {chat_summary}" if chat_summary else "",
+        f"Звонок: {call_summary}" if call_summary else "",
+    ]
+    combined = " ".join(x for x in summary_parts if x).strip()
     if not combined and overall_meaning:
         combined = overall_meaning
 
@@ -495,7 +502,9 @@ async def fetch_timeline_comments(api: Bitrix24API, deal_id: str) -> list[str]:
         return []
 
 
-async def fetch_deal_activities(api: Bitrix24API, deal_id: str, limit: int = 120) -> list[dict[str, Any]]:
+async def fetch_deal_activities(
+    api: Bitrix24API, deal_id: str, limit: int = 120
+) -> list[dict[str, Any]]:
     try:
         res = await api.call(
             "crm.activity.list",

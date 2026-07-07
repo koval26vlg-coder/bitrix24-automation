@@ -536,7 +536,8 @@ with st.sidebar:
     use_vibecode = bitrix_source == "vibecode"
     if bitrix_source == "mcp":
         st.info(
-            "MCP Bitrix — документационный источник. Для runtime сделок и звонков будет использован REST."
+            "MCP Bitrix — документационный источник. "
+            "Для runtime сделок и звонков будет использован REST."
         )
     if use_vibecode and not vibecode_key_present:
         st.caption("VIBECODE_API_KEY не найден в `.env`; будет fallback на Bitrix REST.")

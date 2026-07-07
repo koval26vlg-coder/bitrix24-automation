@@ -132,7 +132,11 @@ async def download_best_effort(
                             if len(html_buf) >= 200000:
                                 break
                     html_text = bytes(html_buf).decode("utf-8", errors="ignore")
-                    direct = _resolve_any_download_href(html_text, base_url=base_url) if base_url else None
+                    direct = (
+                        _resolve_any_download_href(html_text, base_url=base_url)
+                        if base_url
+                        else None
+                    )
                     attempts[-1].note = "html"
                     if not direct:
                         return None
@@ -142,7 +146,11 @@ async def download_best_effort(
                 # иначе считаем, что это файл; проверим первые байты
                 if _looks_like_html_prefix(first_chunk):
                     html_text = first_chunk.decode("utf-8", errors="ignore")
-                    direct = _resolve_any_download_href(html_text, base_url=base_url) if base_url else None
+                    direct = (
+                        _resolve_any_download_href(html_text, base_url=base_url)
+                        if base_url
+                        else None
+                    )
                     attempts[-1].note = "html-bytes"
                     if direct:
                         return await _try_url(client, direct, referer=u)

@@ -345,7 +345,9 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         combined_bitrix_summary, stage_progress_summary = _build_bitrix_deal_summary(
             chat_summary=bitrix_chat_summary,
             call_summary=bitrix_call_summary,
-            stage_name=str(first.get("stage_name") or stage_display_name(first.get("stage_id")) or ""),
+            stage_name=str(
+                first.get("stage_name") or stage_display_name(first.get("stage_id")) or ""
+            ),
             next_step_summary=str(first.get("next_step_activity_summary") or "").strip(),
         )
         if not combined_bitrix_summary and bitrix_overall_meaning:
@@ -423,7 +425,11 @@ def build_deal_report_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "bitrix_overall_meaning": bitrix_overall_meaning,
                 "deal_stage_progress_summary": stage_progress_summary,
                 "bitrix_summary_sources": _join_unique(
-                    [r.get("bitrix_summary_sources") for r in deal_rows if r.get("bitrix_summary_sources")],
+                    [
+                        r.get("bitrix_summary_sources")
+                        for r in deal_rows
+                        if r.get("bitrix_summary_sources")
+                    ],
                     sep=", ",
                 ),
                 "calls_breakdown": "\n\n".join(call_blocks),

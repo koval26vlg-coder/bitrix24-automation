@@ -34,6 +34,12 @@ python -m pip install -r requirements.txt
 python -m pip install -r requirements_ui.txt
 ```
 
+Для воспроизводимой установки точных версий используйте лок-файл:
+
+```bash
+python -m pip install -r requirements.lock.txt
+```
+
 ## Запуск
 
 ```bash
